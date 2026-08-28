@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.11.1",
     "maplibre-gl": "^4.7.1",
     "point-in-polygon": "^1.1.0",
     "tinycolor2": "^1.6.0",

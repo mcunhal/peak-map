@@ -113,3 +113,22 @@ describe('fieldToLngLat', () => {
     expect(y(2) - y(1)).toBeCloseTo(y(8) - y(7), 12);
   });
 });
+
+describe('lngLatToField', () => {
+  const bbox = { west: -10, south: 40, east: -8, north: 42 };
+
+  it('inverts fieldToLngLat', async () => {
+    const { lngLatToField } = await import('./tileMath');
+    for (const [x, y] of [[0, 0], [25, 75], [100, 100], [13.5, 61.25]]) {
+      const { lng, lat } = fieldToLngLat(bbox, 100, 100, x, y);
+      const back = lngLatToField(bbox, 100, 100, lng, lat);
+      expect(back.x).toBeCloseTo(x, 9);
+      expect(back.y).toBeCloseTo(y, 9);
+    }
+  });
+
+  it('puts a northern point near the top of the field', async () => {
+    const { lngLatToField } = await import('./tileMath');
+    expect(lngLatToField(bbox, 100, 100, -9, 41.9).y).toBeLessThan(10);
+  });
+});

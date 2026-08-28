@@ -84,3 +84,17 @@ export function fieldToLngLat(bbox, fieldWidth, fieldHeight, x, y) {
 
   return { lng, lat };
 }
+
+/**
+ * Inverse of fieldToLngLat: where a geographic position falls in the field.
+ * Used to place GPX tracks in the same coordinate space as the terrain.
+ */
+export function lngLatToField(bbox, fieldWidth, fieldHeight, lng, lat) {
+  const x = ((lng - bbox.west) / (bbox.east - bbox.west)) * fieldWidth;
+
+  const northY = latToTileY(bbox.north, 0);
+  const southY = latToTileY(bbox.south, 0);
+  const y = ((latToTileY(lat, 0) - northY) / (southY - northY)) * fieldHeight;
+
+  return { x, y };
+}

@@ -16,7 +16,7 @@ import { createOcclusionBuffer } from '../occlusion';
  * Choose row positions so that one row lands exactly on the highest point. Without
  * this the summit can fall between two scanlines and simply not be drawn.
  */
-function createRowIterator(rowCount, fieldHeight, rowWithHighestPoint) {
+export function createRowIterator(rowCount, fieldHeight, rowWithHighestPoint) {
   const step = Math.max(1, Math.round(fieldHeight / Math.max(1, rowCount)));
   const start = rowWithHighestPoint - Math.floor(rowWithHighestPoint / step) * step;
   const stop = start + step * Math.floor((fieldHeight - 1 - start) / step);
@@ -27,7 +27,7 @@ function createRowIterator(rowCount, fieldHeight, rowWithHighestPoint) {
  * Moving average over the y values of a polyline, reported with its extent so the
  * caller does not need a second pass to find it.
  */
-function smoothPolyline(points, windowSize) {
+export function smoothPolyline(points, windowSize) {
   if (windowSize <= 0) return points;
 
   const count = points.length / 2;
