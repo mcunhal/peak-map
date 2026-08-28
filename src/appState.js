@@ -13,8 +13,6 @@ const appState = {
   oceanLevel: 0,
   aboutVisible: false,
   error: null,
-  zazzleLink: null,
-  generatingPreview: false,
   settingsOpen: false,
   shouldDraw: false,
   renderProgress: null,

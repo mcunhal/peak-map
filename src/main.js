@@ -75,7 +75,6 @@ function updateMapWhenIdle() {
 }
 
 function hideHeights() {
-  appState.zazzleLink = null;
   let canvas = getHeightMapCanvas();
   if (canvas) canvas.style.opacity = 0.02;
 }

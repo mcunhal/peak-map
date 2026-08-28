@@ -101,22 +101,6 @@
         <div v-if='!showLess'>
           <h3>Export</h3>
 
-          <div class='row'>
-            <a href="#" class='col export' title='Print on a mug' @click.prevent='previewOrOpen'>Onto a mug</a>
-            <span class='col c-2'>
-              Print what you see onto a mug. Get a unique gift of your favorite place.
-            </span>
-          </div>
-
-          <div class='preview-actions' v-if='zazzleLink || generatingPreview || error'>
-            <div v-if='zazzleLink' class='padded popup-help'>
-              If your browser has blocked the new window, please <a :href='zazzleLink' target='_blank'>click here</a>
-              to open it.
-            </div>
-            <div v-if='generatingPreview' class='loading-container'>
-              <loading></loading> Generating preview url...
-            </div>
-          </div>
           <div class='error padded' v-if='error'>
             <h5>Error occurred:</h5>
             <pre>{{error}}</pre>
@@ -136,13 +120,16 @@
           </div>
           <h3>About</h3>
           <div>
-            <p>This website was created by <a href='https://twitter.com/anvaka' target='_blank'>@anvaka</a>.
-            It shows elevation with ridgelines for anywhere on Earth. 
+            <p>
+            Topographic line maps built for pen plotting: layered SVG in millimetres,
+            GPX routes on their own pens, and several ways of turning terrain into lines.
             </p>
             <p>
-            You can find the entire <a href='https://github.com/anvaka/peak-map'>source code here</a>. 
-            I hope you enjoy the website! And if you truly do you can always <a href='https://www.patreon.com/anvaka'>become my patron</a> or just 
-            <a href='https://www.paypal.com/paypalme2/anvakos/3'>buy me a coffee</a>. Your patronage helps me pay for the API and coffee.
+            A fork of <a href='https://github.com/anvaka/peak-map' target='_blank'>peak-map</a>
+            by <a href='https://twitter.com/anvaka' target='_blank'>@anvaka</a>, whose hidden-line
+            ridgeline renderer is still at the heart of it. Elevation comes from
+            <a href='https://registry.opendata.aws/terrain-tiles/' target='_blank'>AWS Terrain Tiles</a>,
+            so no API key is needed.
             </p>
           </div>
         </div>
@@ -173,7 +160,6 @@ import Loading from './components/Loading.vue';
 import FindBounds from './components/FindBounds.vue';
 import EditableLabel from './components/EditableLabel.vue';
 import About from './components/About.vue';
-import generateZazzleLink from './lib/getZazzleLink';
 import tinycolor from 'tinycolor2';
 
 export default {
@@ -255,7 +241,6 @@ export default {
     },
     shouldDraw(newValue) {
       if (!newValue) {
-        this.zazzleLink = null;
         this.error = null;
       }
       this.updateMap();
@@ -297,26 +282,6 @@ export default {
         a.click();
         window.URL.revokeObjectURL(url);
       }, 'image/png')
-    },
-
-    previewOrOpen() {
-      if (this.zazzleLink) {
-        window.open(this.zazzleLink, '_blank');
-        recordOpenClick(this.zazzleLink);
-        return;
-      }
-      appState.generatingPreview = true;
-      let blended = this.getBlendedCanvas();
-
-      generateZazzleLink(blended).then(link => {
-        appState.zazzleLink = link;
-        window.open(link, '_blank');
-        recordOpenClick(link);
-        appState.generatingPreview = false;
-      }).catch(e => {
-        appState.error = e;
-        appState.generatingPreview = false;
-      });
     },
 
     getBlendedCanvas() {
@@ -374,15 +339,6 @@ function drawHtml(element, ctx) {
   ctx.textAlign = 'end'
   ctx.fillText(element.text, element.bounds.right * dpr, element.bounds.bottom * dpr)
   ctx.restore();
-}
-
-function recordOpenClick(link) {
-  if (typeof gtag === 'undefined') return;
-
-  gtag('event', 'click', {
-    'event_category': 'Outbound Link',
-    'event_label': link
-  });
 }
 </script>
 

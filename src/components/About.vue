@@ -4,20 +4,18 @@
     <div class='content'>
       <h3>Peak map <a class='close bold' href='#' @click.prevent='close'>close</a></h3>
       <p>
-        This website allows you to pick any region of the world and print its high points in artistic, joyful manner.
+        Pick any region on Earth and turn its terrain into line art built for pen plotting:
+        layered SVG in millimetres, GPX routes on their own pens, and a choice of algorithms
+        for turning elevation into lines.
       </p>
 
-      <p>After the map is generated you can print it on a mug with Zazzle. This would not only delight a happy
-        recipient of the unique gift, but would also support yours humble author of this website :).</p>
-      <ul>
-        <li>
-          Stay tuned for updates on <a href='https://twitter.com/anvaka' class='highlighted'>Twitter.</a>
-        </li>
-        <li>
-          Read the source code on <a href='https://github.com/anvaka/peak-map' class='highlighted'>GitHub.</a>
-        </li>
-      </ul>
-      <p>With passion,<br/> Anvaka</p>
+      <p>
+        This is a fork of <a href='https://github.com/anvaka/peak-map' class='highlighted'>peak-map</a>
+        by Anvaka, whose hidden-line ridgeline renderer it is still built around.
+        Elevation data comes from
+        <a href='https://registry.opendata.aws/terrain-tiles/' class='highlighted'>AWS Terrain Tiles</a>,
+        so the app needs no API key.
+      </p>
       <a href='#' @click.prevent='close' class='large-close bold'>
         close
       </a>
