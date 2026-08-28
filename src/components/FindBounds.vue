@@ -53,7 +53,7 @@
 </template>
 <script>
 
-import Loading from './Loading'
+import Loading from './Loading.vue'
 import request from '../lib/request';
 import appState from '../appState';
 import ClickOutside from './clickOutside.js'

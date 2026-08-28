@@ -109,6 +109,4 @@ function simplify(points, tolerance, highestQuality) {
     return points;
 }
 
-// export as AMD module / Node module / browser or worker variable
-module.exports = simplify;
-module.exports.default = simplify;
+export default simplify;

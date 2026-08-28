@@ -1,22 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-TXT6313TGG"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-TXT6313TGG');
-</script>
     <meta charset="utf-8">
-    <meta property="og:title" content="Artistic visualization of heights" />
-    <meta property="og:image" content="https://i.imgur.com/A5DGc2x.png" />
-    <meta property="og:description" content="This website is allows you to pick any region of the world and print its high points in artistic, joyful manner. " />
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1, user-scalable=no">
-    <title>Peak map</title>
-    <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v1.6.0/mapbox-gl.css' rel='stylesheet' />
-    <link href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v2.3.0/mapbox-gl-geocoder.css' rel='stylesheet' type='text/css' />
+    <title>Peak map — plotter edition</title>
     <style>
       body { margin:0; padding:0; position: fixed; overflow: hidden; width: 100%; height: 100%;}
       #map { position:absolute; }
@@ -25,6 +12,6 @@
   </head>
   <body>
     <div id='app'></div>
-    <!-- built files will be auto injected -->
+    <script type="module" src="/src/main.js"></script>
   </body>
 </html>

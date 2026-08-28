@@ -168,11 +168,11 @@
 
 <script>
 import appState from './appState';
-import ColorPicker from './components/ColorPicker';
-import Loading from './components/Loading';
-import FindBounds from './components/FindBounds';
-import EditableLabel from './components/EditableLabel';
-import About from './components/About';
+import ColorPicker from './components/ColorPicker.vue';
+import Loading from './components/Loading.vue';
+import FindBounds from './components/FindBounds.vue';
+import EditableLabel from './components/EditableLabel.vue';
+import About from './components/About.vue';
 import generateZazzleLink from './lib/getZazzleLink';
 import tinycolor from 'tinycolor2';
 

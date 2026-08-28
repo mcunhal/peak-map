@@ -2,20 +2,22 @@
  * This is the website startup point.
  */
 import appState from "./appState";
-import mapboxgl from "mapbox-gl";
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import createHeightMapRenderer from "./lib/createHeightMapRenderer";
-import { MAPBOX_TOKEN } from "./config";
+import { buildRasterStyle } from "./config";
 import getRegionElevation from './getRegionElevation';
 
-var MapboxGeocoder = require("@mapbox/mapbox-gl-geocoder");
 window.addEventListener('error', logError);
 
-// Load vue asyncronously
-require.ensure("@/vueApp.js", () => {
-  require("@/vueApp.js");
-});
+// Dev-only handle so the app state can be driven from the console (and from
+// automated checks, where the tab is hidden and the rAF render loop is throttled).
+if (import.meta.env.DEV) window.appState = appState;
 
-// Hold a reference to mapboxgl instance.
+// Load vue asyncronously
+import("@/vueApp.js");
+
+// Hold a reference to the maplibregl instance.
 let map;
 let heightMapRenderer;
 let regionBuilder;
@@ -31,23 +33,20 @@ appState.listenToEvents = listenToEvents;
 function init() {
   updateSizes();
 
-  mapboxgl.accessToken = MAPBOX_TOKEN;
-
-  window.map = map = new mapboxgl.Map({
+  window.map = map = new maplibregl.Map({
     trackResize: false,
     container: "map",
     minZoom: 0,
-    style: "mapbox://styles/mapbox/light-v10",
+    style: buildRasterStyle(),
     center: [-122.574, 47.727],
     zoom: 7.68,
     hash: true
   });
 
   map.addControl(
-    new mapboxgl.NavigationControl({ showCompass: false }),
+    new maplibregl.NavigationControl({ showCompass: false }),
     "bottom-right"
   );
-  map.addControl(new MapboxGeocoder({ accessToken: mapboxgl.accessToken }));
   listenToEvents(true);
 
   map.on("load", function() {
@@ -204,14 +203,8 @@ function getCanvasDimensions() {
 }
 
 function logError(e) {
-  if (typeof gtag === 'undefined') return;
-
-  const exDescription = e ? `${e.message} in ${e.filename}:${e.lineno}` : 'Unknown exception';
-
-  gtag('send', 'exception', {
-    description: exDescription,
-    fatal: false
-  });
+  const description = e ? `${e.message} in ${e.filename}:${e.lineno}` : 'Unknown exception';
+  console.error('[peak-map]', description);
 }
 
 function px(x) {

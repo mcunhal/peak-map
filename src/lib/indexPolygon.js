@@ -1,5 +1,5 @@
-var inside = require('point-in-polygon');
-var simplify = require('./simplify');
+import inside from 'point-in-polygon';
+import simplify from './simplify';
 
 
 export default function indexPolygon(nominatimResponse) {

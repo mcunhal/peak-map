@@ -1,13 +1,25 @@
-import { MAPBOX_TOKEN } from "./config";
 import indexPolygon from "./lib/indexPolygon";
+import { DEFAULT_DEM_SOURCE, getDemSource, tileUrl, unavailableReason } from "./dem/sources";
 
-const apiURL = `https://api.mapbox.com/v4/mapbox.terrain-rgb/zoom/tLong/tLat@2x.pngraw?access_token=${MAPBOX_TOKEN}`;
 let imageCache = new Map();
+
+/**
+ * Sentinel for samples with no elevation data (a tile that failed to load, or a
+ * sample outside the selected boundary). Chosen so the `height <= oceanLevel` test
+ * in the renderer breaks the line rather than drawing a false sea-level plateau.
+ */
+export const NODATA = Number.NEGATIVE_INFINITY;
 
 export default function getRegionElevation(map, appState, doneCallback) {
   const progress = appState.renderProgress || {};
 
-  const {tileSize, tileZoom} = map.transform;
+  const sourceId = appState.demSource || DEFAULT_DEM_SOURCE;
+  const source = getDemSource(sourceId);
+  if (!source) throw new Error(unavailableReason(sourceId));
+
+  const {tileSize} = map.transform;
+  // Elevation tilesets stop at a finite zoom; asking beyond it returns 404s.
+  const tileZoom = Math.min(map.transform.tileZoom, source.maxZoom);
   const zoomPower = Math.pow(2, tileZoom);
 
   const coveringTiles = map.transform.coveringTiles({
@@ -28,6 +40,10 @@ export default function getRegionElevation(map, appState, doneCallback) {
     se.lat = tile2lat(tileBounds.maxY + 1, zoomPower);
     windowHeight = Math.floor(map.project(se).y);
   }
+
+  // Tiles that failed to load, in canvas pixel space, so samples landing in them
+  // can be reported as nodata instead of silently reading a fill colour.
+  const blankTiles = [];
 
   const canvas = document.createElement("canvas");
   canvas.width = (widthInTiles + 1) * tileSize;
@@ -108,6 +124,7 @@ export default function getRegionElevation(map, appState, doneCallback) {
           const index = y * windowWidth + x;
           const height = getHeight(x, y, insideMask);
           allHeights[index] = height;
+          if (height === NODATA) continue;
           if (height < minHeight) minHeight = height;
           if (height > maxHeight) {
             maxHeight = height;
@@ -144,22 +161,22 @@ export default function getRegionElevation(map, appState, doneCallback) {
       let yC = Math.round(yOffset);
       let xC = Math.round(xOffset);
 
+      if (isBlank(xC, yC)) return NODATA;
+
       let index = (yC * canvasWidth + xC) * 4;
       let R = data[index + 0];
       let G = data[index + 1];
       let B = data[index + 2];
 
-      return decodeHeight(R, G, B)
+      return source.decode(R, G, B);
     }
 
-    function decodeHeight(R, G, B) {
-      let height = -10000 + ((R * 256 * 256 + G * 256 + B) * 0.1)
-      if (height < -100) {
-        // Fiji islands data has huge caves, which pushes the entire thing up.
-        // I'm reducing it.
-        height = height / 5000;
+    function isBlank(x, y) {
+      for (let i = 0; i < blankTiles.length; ++i) {
+        const t = blankTiles[i];
+        if (x >= t.x && x < t.x + t.size && y >= t.y && y < t.y + t.size) return true;
       }
-      return height;
+      return false;
     }
   }
 
@@ -172,22 +189,19 @@ export default function getRegionElevation(map, appState, doneCallback) {
       .finally(advanceProgress);
 
     function drawTileImage(image) {
-      ctx.drawImage(image, request.x, request.y);
+      // Terrarium tiles are 256px while the map transform may use 512px slots, so
+      // the destination size is given explicitly rather than relying on natural size.
+      ctx.drawImage(image, request.x, request.y, tileSize, tileSize);
     }
 
     function drawBlankTile() {
-      ctx.beginPath();
-      ctx.fillStyle = '#0186a0'; // zero height
-      ctx.fillRect(request.x, request.y, tileSize, tileSize);
+      blankTiles.push({x: request.x, y: request.y, size: tileSize});
     }
   }
 
   function getRequestForTile(tile) {
     const p = tile.canonical;
-    const url = apiURL
-      .replace('zoom', p.z)
-      .replace('tLat', p.y)
-      .replace('tLong', p.x);
+    const url = tileUrl(source, p.z, p.x, p.y);
 
     return {
       url,

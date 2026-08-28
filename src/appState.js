@@ -1,7 +1,9 @@
 import tinycolor from 'tinycolor2';
+import { DEFAULT_DEM_SOURCE } from './dem/sources';
 
 const appState = {
   angle: 0,
+  demSource: DEFAULT_DEM_SOURCE,
   currentState: 'intro',
   lineDensity: 28,
   lineWidth: 1,
