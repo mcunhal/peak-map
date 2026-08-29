@@ -249,3 +249,42 @@ describe('hillshadeHatching', () => {
     );
   });
 });
+
+describe('hachures scale to their terrain', () => {
+  it('reads the slope range out of the field', async () => {
+    const { slopePercentiles } = await import('./hachures');
+    const gentle = computeSlope(computeGradient(gaussianHill(60, 60, 60)));
+    const steep = computeSlope(computeGradient(gaussianHill(60, 60, 3000)));
+    const a = slopePercentiles(gentle);
+    const b = slopePercentiles(steep);
+    expect(a.maxSlope).toBeLessThan(b.maxSlope);
+    expect(a.minSlope).toBeLessThan(a.maxSlope);
+  });
+
+  it('has nothing to report on flat ground', async () => {
+    const { slopePercentiles } = await import('./hachures');
+    const flat = computeSlope(computeGradient(planeField(40, 40, 100)));
+    expect(slopePercentiles(flat)).toBeNull();
+  });
+
+  it('varies stroke length on gentle terrain, where a fixed range would not', async () => {
+    // A hill far below the old fixed maximum of 0.8 radians. Every stroke used to
+    // come out at the minimum, giving a flat, textureless drawing.
+    const field = gaussianHill(90, 90, 120);
+    const gradient = computeGradient(field);
+    const lines = hachures(gradient, computeSlope(gradient), { separation: 4 });
+    expect(lines.length).toBeGreaterThan(20);
+
+    const lengths = lines.map((l) => polylineLength(l));
+    const shortest = Math.min(...lengths);
+    const longest = Math.max(...lengths);
+    expect(longest / shortest).toBeGreaterThan(1.5);
+  });
+
+  it('still honours an explicit range', async () => {
+    const field = gaussianHill(60, 60, 900);
+    const gradient = computeGradient(field);
+    const wide = hachures(gradient, computeSlope(gradient), { separation: 4, minSlope: 0.01, maxSlope: 2 });
+    expect(wide.length).toBeGreaterThan(0);
+  });
+});

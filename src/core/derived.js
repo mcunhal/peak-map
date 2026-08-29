@@ -157,6 +157,42 @@ export function sampleGrid(grid, x, y) {
   );
 }
 
+/**
+ * Bilinear sample of the gradient into a caller-supplied object.
+ *
+ * Streamline integration calls this twice per step and takes millions of steps,
+ * so returning a fresh object each time is most of the cost: not the arithmetic,
+ * but the garbage. Writing into a reused object removes that entirely.
+ *
+ * @returns {boolean} whether the sample was defined
+ */
+export function sampleGradientInto(gradient, x, y, out) {
+  const { width, height, dzdx, dzdy, valid } = gradient;
+  if (x < 0 || y < 0 || x > width - 1 || y > height - 1) return false;
+
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1 < width ? x0 + 1 : width - 1;
+  const y1 = y0 + 1 < height ? y0 + 1 : height - 1;
+
+  const i00 = y0 * width + x0;
+  const i10 = y0 * width + x1;
+  const i01 = y1 * width + x0;
+  const i11 = y1 * width + x1;
+  if (!valid[i00] || !valid[i10] || !valid[i01] || !valid[i11]) return false;
+
+  const tx = x - x0;
+  const ty = y - y0;
+  const w00 = (1 - tx) * (1 - ty);
+  const w10 = tx * (1 - ty);
+  const w01 = (1 - tx) * ty;
+  const w11 = tx * ty;
+
+  out.dx = dzdx[i00] * w00 + dzdx[i10] * w10 + dzdx[i01] * w01 + dzdx[i11] * w11;
+  out.dy = dzdy[i00] * w00 + dzdy[i10] * w10 + dzdy[i01] * w01 + dzdy[i11] * w11;
+  return true;
+}
+
 /** Bilinear sample of the gradient, for streamline integration. */
 export function sampleGradient(gradient, x, y) {
   const { width, height, dzdx, dzdy, valid } = gradient;

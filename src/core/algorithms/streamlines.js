@@ -16,7 +16,7 @@
  *   contour  follows the perpendicular, so strokes run along the hillside like
  *            isolines, but evenly spaced rather than at fixed elevations.
  */
-import { sampleGradient } from '../derived';
+import { sampleGradient, sampleGradientInto } from '../derived';
 
 /**
  * Spatial hash over the points of streamlines already accepted, so proximity
@@ -61,21 +61,38 @@ function createProximityGrid(cellSize, width, height) {
   };
 }
 
-/** Unit direction of the chosen field at a point, or null where it is undefined. */
-function fieldDirection(gradient, x, y, mode) {
-  const g = sampleGradient(gradient, x, y);
-  if (!g) return null;
+/**
+ * Unit direction of the chosen field at a point, written into `out`.
+ *
+ * Allocation-free, because this is the innermost call of the whole algorithm.
+ *
+ * @returns {boolean} whether a direction exists here
+ */
+function directionInto(gradient, x, y, mode, scratch, out) {
+  if (!sampleGradientInto(gradient, x, y, scratch)) return false;
 
-  const magnitude = Math.hypot(g.dx, g.dy);
+  const magnitude = Math.hypot(scratch.dx, scratch.dy);
   // Flat ground has no direction to follow; a stroke there would be arbitrary.
-  if (magnitude < 1e-9) return null;
+  if (magnitude < 1e-9) return false;
 
   if (mode === 'contour') {
     // Perpendicular to the gradient: along the hillside.
-    return { x: -g.dy / magnitude, y: g.dx / magnitude, magnitude };
+    out.x = -scratch.dy / magnitude;
+    out.y = scratch.dx / magnitude;
+  } else {
+    // Downhill.
+    out.x = -scratch.dx / magnitude;
+    out.y = -scratch.dy / magnitude;
   }
-  // Downhill.
-  return { x: -g.dx / magnitude, y: -g.dy / magnitude, magnitude };
+  out.magnitude = magnitude;
+  return true;
+}
+
+/** Convenience wrapper for the seeding passes, where allocation does not matter. */
+function fieldDirection(gradient, x, y, mode) {
+  const scratch = { dx: 0, dy: 0 };
+  const out = { x: 0, y: 0, magnitude: 0 };
+  return directionInto(gradient, x, y, mode, scratch, out) ? out : null;
 }
 
 /**
@@ -83,6 +100,12 @@ function fieldDirection(gradient, x, y, mode) {
  * Runge-Kutta. Euler drifts badly across a curving field and closes loops that
  * should stay open.
  */
+// Reused across every integration step; the loop is hot enough that allocating
+// here dominated the running time.
+const SCRATCH_GRADIENT = { dx: 0, dy: 0 };
+const SCRATCH_K1 = { x: 0, y: 0, magnitude: 0 };
+const SCRATCH_K2 = { x: 0, y: 0, magnitude: 0 };
+
 function integrate(gradient, seed, sign, options, isTooClose) {
   const { stepSize, maxSteps, mode, width, height, minMagnitude, recordSpacing } = options;
   const points = [];
@@ -100,17 +123,16 @@ function integrate(gradient, seed, sign, options, isTooClose) {
   for (let step = 0; step < maxSteps; ++step) {
     if (x < 0 || y < 0 || x > width - 1 || y > height - 1) break;
 
-    const k1 = fieldDirection(gradient, x, y, mode);
-    if (!k1 || k1.magnitude < minMagnitude) break;
+    if (!directionInto(gradient, x, y, mode, SCRATCH_GRADIENT, SCRATCH_K1)) break;
+    if (SCRATCH_K1.magnitude < minMagnitude) break;
 
     // Midpoint.
-    const mx = x + sign * k1.x * stepSize * 0.5;
-    const my = y + sign * k1.y * stepSize * 0.5;
-    const k2 = fieldDirection(gradient, mx, my, mode);
-    if (!k2) break;
+    const mx = x + sign * SCRATCH_K1.x * stepSize * 0.5;
+    const my = y + sign * SCRATCH_K1.y * stepSize * 0.5;
+    if (!directionInto(gradient, mx, my, mode, SCRATCH_GRADIENT, SCRATCH_K2)) break;
 
-    const nx = x + sign * k2.x * stepSize;
-    const ny = y + sign * k2.y * stepSize;
+    const nx = x + sign * SCRATCH_K2.x * stepSize;
+    const ny = y + sign * SCRATCH_K2.y * stepSize;
     if (!Number.isFinite(nx) || !Number.isFinite(ny)) break;
     if (nx < 0 || ny < 0 || nx > width - 1 || ny > height - 1) break;
 
@@ -179,7 +201,11 @@ export function evenlySpacedStreamlines(gradient, options = {}) {
   if (!(separation > 0)) throw new Error('Streamline separation must be positive');
 
   const stopDistance = separation * testFactor;
-  const grid = createProximityGrid(Math.max(1, separation), width, height);
+  // Size the cells to the query radius, not to the separation. Every proximity
+  // test asks about stopDistance, so cells that size mean the nine examined hold
+  // about a quarter as many points as cells sized to the separation do, and the
+  // test runs on every integration step.
+  const grid = createProximityGrid(Math.max(0.5, stopDistance), width, height);
   const isTooClose = (x, y) => grid.hasNeighbourWithin(x, y, stopDistance);
 
   const accepted = [];

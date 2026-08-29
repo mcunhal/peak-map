@@ -18,6 +18,35 @@ import { sampleGrid } from '../derived';
 import { isNoData } from '../heightField';
 
 /**
+ * The range of slopes actually present, as percentiles.
+ *
+ * Normalising steepness against a fixed span of angles looks reasonable and does
+ * not work: real terrain at 30m resolution occupies a narrow band of that span,
+ * so almost every stroke comes out at the minimum length and the drawing is a
+ * uniform texture with no relief in it. Taking the range from the data means the
+ * contrast is spent where the terrain actually varies.
+ */
+export function slopePercentiles(slopeGrid, low = 0.2, high = 0.95) {
+  const { data } = slopeGrid;
+  // Sampled rather than sorted whole: a full sort of half a million values costs
+  // more than the rest of the algorithm.
+  const step = Math.max(1, Math.floor(data.length / 20000));
+  const values = [];
+  for (let i = 0; i < data.length; i += step) {
+    const v = data[i];
+    if (!isNoData(v)) values.push(v);
+  }
+  if (values.length < 2) return null;
+
+  values.sort((a, b) => a - b);
+  const at = (p) => values[Math.min(values.length - 1, Math.floor(p * values.length))];
+  const lo = at(low);
+  const hi = at(high);
+  if (!(hi > lo)) return null;
+  return { minSlope: lo, maxSlope: hi };
+}
+
+/**
  * Cut a long slope line into hachure strokes.
  *
  * Steep ground gets long strokes with short gaps, gentle ground short strokes with
@@ -93,6 +122,11 @@ function cutIntoHachures(line, slopeGrid, options) {
  * @param {number} [options.maxSlope]   - radians treated as fully steep
  */
 export function hachures(gradient, slopeGrid, options = {}) {
+  // Take the slope range from the terrain unless the caller insists otherwise.
+  const measured = options.minSlope === undefined && options.maxSlope === undefined
+    ? slopePercentiles(slopeGrid)
+    : null;
+
   const settings = {
     separation: 4,
     minStroke: 1.5,
@@ -103,6 +137,7 @@ export function hachures(gradient, slopeGrid, options = {}) {
     stepSize: 0.5,
     maxLines: 8000,
     ...options,
+    ...(measured || {}),
   };
 
   const flowlines = evenlySpacedStreamlines(gradient, {

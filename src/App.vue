@@ -116,10 +116,27 @@
         <div class='row' v-if='isFlowFamily'>
           <div class='col'>Line spacing (mm)</div>
           <div class='col c-2'>
-            <input type='range' min='0.4' max='8' step='0.1' v-model='separation'>
-            <input type='number' step='0.1' v-model='separation' min='0.4' max='8'>
+            <input type='range' min='0.8' max='15' step='0.1' v-model='separation'>
+            <input type='number' step='0.1' v-model='separation' min='0.8' max='15'>
           </div>
         </div>
+        <template v-if="algorithm === 'hachures'">
+          <div class='row'>
+            <div class='col'>Stroke length (mm)</div>
+            <div class='col c-2'>
+              <input type='number' step='0.1' min='0.2' max='10' v-model='hachureMinStroke'>
+              <input type='number' step='0.1' min='0.4' max='20' v-model='hachureMaxStroke'>
+            </div>
+          </div>
+          <div class='row'>
+            <div class='col'>Stroke gap (mm)</div>
+            <div class='col c-2'>
+              <input type='range' min='0.2' max='8' step='0.1' v-model='hachureGap'>
+              <input type='number' step='0.1' min='0.2' max='8' v-model='hachureGap'>
+            </div>
+          </div>
+          <div class='row'><div class='col'></div><div class='col c-2 hint'>Short on gentle ground, long on steep, blank where level.</div></div>
+        </template>
 
         <template v-if="algorithm === 'hillshade-hatching'">
           <div class='row'>
@@ -337,6 +354,7 @@ const RENDER_INPUTS = [
   'hatchAngle', 'hatchSpacing', 'hatchLevels',
   'paper', 'orientation', 'margin', 'terrainPenColor', 'terrainPenWidth',
   'includeBackground', 'paperColor', 'dotPitch', 'dotLength',
+  'hachureMinStroke', 'hachureMaxStroke', 'hachureGap',
   'showCompass', 'compassRadius', 'compassCorner', 'compassColor', 'compassPenWidth',
   'angle',
   'trackMode',

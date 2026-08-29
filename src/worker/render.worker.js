@@ -24,12 +24,12 @@ import { compassForPage } from '../core/compass';
 /** Options the app supplies in millimetres, with the default each falls back to. */
 const MILLIMETRE_OPTIONS = {
   heightScale: 26,
-  separation: 2.2,
+  separation: 4,
   spacing: 0.9,
   smoothSteps: 0.9,
-  minStroke: 0.7,
-  maxStroke: 3,
-  gap: 1.1,
+  minStroke: 0.8,
+  maxStroke: 3.5,
+  gap: 1.2,
 };
 
 let currentJob = 0;
@@ -122,6 +122,8 @@ async function render(request, progress, stillCurrent) {
 
   const options = { ...definition.defaults, ...algorithmOptions, ...sized };
   // Integration step follows the separation, so it never needs its own setting.
+  // An eighth keeps hachure cutting stable: a coarser step overshoots the gap
+  // logic and triples the number of strokes.
   if (sized.separation) options.stepSize = Math.max(0.25, sized.separation / 8);
   if (sized.smoothSteps !== undefined) {
     options.smoothSteps = Math.max(0, Math.round(sized.smoothSteps));
