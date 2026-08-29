@@ -304,6 +304,24 @@ export function mergePolylines(polylines, tolerance, { allowReverse = true } = {
       current = current.concat(next.slice(2));
     }
 
+    // And backwards. Without this a chain seeded from its middle strands
+    // everything before that point as separate strokes, which is exactly what
+    // contour segments do: they arrive in scan order, not in ring order.
+    for (;;) {
+      const [sx, sy] = startOf(current);
+      const hit = index.nearest(sx, sy);
+      if (!hit) break;
+      if (Math.hypot(hit.x - sx, hit.y - sy) > tolerance) break;
+
+      // The joined stroke must end where the chain starts.
+      const previous = hit.payload.atStart
+        ? reversed(remaining[hit.payload.i])
+        : remaining[hit.payload.i];
+      used[hit.payload.i] = 1;
+      index.retire(hit.payload.i);
+      current = previous.concat(current.slice(2));
+    }
+
     out.push(current);
   }
 
