@@ -58,82 +58,129 @@ function interpolate(level, a, b) {
 }
 
 /**
- * Marching squares over one level, emitting unchained two-point segments.
+ * Emit the contour segments for one cell at one level.
  *
- * Cells touching nodata are skipped entirely: a contour that ran along the edge of
- * a data hole would be an artefact of the hole, not of the terrain.
+ * Split out so the whole grid can be walked once for every level at a time,
+ * rather than once per level. Cells touching nodata are the caller's problem.
  */
-export function marchSquares(field, level) {
-  const { width, height } = field;
-  const segments = [];
+function emitCell(level, x, y, tl, tr, br, bl, segments) {
+  const index =
+    (tl >= level ? 8 : 0) |
+    (tr >= level ? 4 : 0) |
+    (br >= level ? 2 : 0) |
+    (bl >= level ? 1 : 0);
+  if (index === 0 || index === 15) return;
 
-  // Nudge the level off the sample values.
-  //
-  // A level lying exactly on grid samples is the degenerate case for marching
-  // squares: crossings land precisely on cell corners, producing zero-length
-  // segments and junctions shared by four or six segments, which then chain into
-  // fragments instead of one ring. A cone is the obvious example, since its
-  // elevation hits round numbers exactly. The offset is far below any elevation
-  // anyone can measure, and moves the contour by nothing that can be plotted.
-  const effective = level + Math.max(Math.abs(level), 1) * 1e-9;
+  const top = [x + interpolate(level, tl, tr), y];
+  const right = [x + 1, y + interpolate(level, tr, br)];
+  const bottom = [x + interpolate(level, bl, br), y + 1];
+  const left = [x, y + interpolate(level, tl, bl)];
+
+  // A crossing with no length carries no information and only confuses the
+  // chaining pass, which sees it as a junction.
+  const push = (a, b) => {
+    if (a[0] === b[0] && a[1] === b[1]) return;
+    segments.push([a[0], a[1], b[0], b[1]]);
+  };
+
+  switch (index) {
+    case 1: case 14: push(left, bottom); break;
+    case 2: case 13: push(bottom, right); break;
+    case 3: case 12: push(left, right); break;
+    case 4: case 11: push(top, right); break;
+    case 6: case 9: push(top, bottom); break;
+    case 7: case 8: push(left, top); break;
+
+    // Saddles. The centre value decides which way the two lines run; taking the
+    // wrong pairing joins ridges that are not connected.
+    case 5: {
+      const centre = (tl + tr + br + bl) / 4;
+      if (centre >= level) { push(left, top); push(bottom, right); }
+      else { push(left, bottom); push(top, right); }
+      break;
+    }
+    case 10: {
+      const centre = (tl + tr + br + bl) / 4;
+      if (centre >= level) { push(top, right); push(left, bottom); }
+      else { push(left, top); push(bottom, right); }
+      break;
+    }
+    default: break;
+  }
+}
+
+/**
+ * Nudge a level off the sample values.
+ *
+ * A level lying exactly on grid samples is the degenerate case for marching
+ * squares: crossings land precisely on cell corners, producing zero-length
+ * segments and junctions shared by four or six segments, which then chain into
+ * fragments instead of one ring. A cone is the obvious example, since its
+ * elevation hits round numbers exactly. The offset is far below any elevation
+ * anyone can measure, and moves the contour by nothing that can be plotted.
+ */
+function nudge(level) {
+  return level + Math.max(Math.abs(level), 1) * 1e-9;
+}
+
+/** Marching squares over one level, emitting unchained two-point segments. */
+export function marchSquares(field, level) {
+  return marchSquaresMulti(field, [level])[0];
+}
+
+/**
+ * Marching squares over many levels in a single pass over the grid.
+ *
+ * Walking the grid once per level is the obvious implementation and it is what
+ * this did first, but it costs a full scan of every cell for every contour: at
+ * app detail that is twenty-five scans of half a million cells, and twenty
+ * seconds of work. Since a cell can only be crossed by levels lying between its
+ * own lowest and highest corner, one scan can serve every level at once, and
+ * typical terrain has only a handful of levels crossing any given cell.
+ *
+ * @param {object} field
+ * @param {Array<number>} levels - ascending
+ * @param {Function} [onProgress] - called with a fraction as rows are scanned
+ * @returns {Array<Array>} segments per level, in the order the levels were given
+ */
+export function marchSquaresMulti(field, levels, onProgress = null) {
+  const { width, height } = field;
+  const perLevel = levels.map(() => []);
+  if (levels.length === 0) return perLevel;
+
+  const effective = levels.map(nudge);
+  const data = field.data;
+  const reportEvery = Math.max(1, Math.floor((height - 1) / 20));
 
   for (let y = 0; y < height - 1; ++y) {
+    const row = y * width;
+    const nextRow = row + width;
+
     for (let x = 0; x < width - 1; ++x) {
-      // Corners, clockwise from top-left.
-      const tl = field.get(x, y);
-      const tr = field.get(x + 1, y);
-      const br = field.get(x + 1, y + 1);
-      const bl = field.get(x, y + 1);
+      const tl = data[row + x];
+      const tr = data[row + x + 1];
+      const br = data[nextRow + x + 1];
+      const bl = data[nextRow + x];
       if (isNoData(tl) || isNoData(tr) || isNoData(br) || isNoData(bl)) continue;
 
-      const index =
-        (tl >= effective ? 8 : 0) |
-        (tr >= effective ? 4 : 0) |
-        (br >= effective ? 2 : 0) |
-        (bl >= effective ? 1 : 0);
-      if (index === 0 || index === 15) continue;
+      let low = tl, high = tl;
+      if (tr < low) low = tr; else if (tr > high) high = tr;
+      if (br < low) low = br; else if (br > high) high = br;
+      if (bl < low) low = bl; else if (bl > high) high = bl;
 
-      // Crossing points on each edge, in field coordinates.
-      const top = [x + interpolate(effective, tl, tr), y];
-      const right = [x + 1, y + interpolate(effective, tr, br)];
-      const bottom = [x + interpolate(effective, bl, br), y + 1];
-      const left = [x, y + interpolate(effective, tl, bl)];
-
-      // A crossing with no length carries no information and only confuses the
-      // chaining pass, which sees it as a junction.
-      const push = (a, b) => {
-        if (a[0] === b[0] && a[1] === b[1]) return;
-        segments.push([a[0], a[1], b[0], b[1]]);
-      };
-
-      switch (index) {
-        case 1: case 14: push(left, bottom); break;
-        case 2: case 13: push(bottom, right); break;
-        case 3: case 12: push(left, right); break;
-        case 4: case 11: push(top, right); break;
-        case 6: case 9: push(top, bottom); break;
-        case 7: case 8: push(left, top); break;
-
-        // Saddles. The centre value decides which way the two lines run; taking
-        // the wrong pairing joins ridges that are not connected.
-        case 5: {
-          const centre = (tl + tr + br + bl) / 4;
-          if (centre >= effective) { push(left, top); push(bottom, right); }
-          else { push(left, bottom); push(top, right); }
-          break;
-        }
-        case 10: {
-          const centre = (tl + tr + br + bl) / 4;
-          if (centre >= effective) { push(top, right); push(left, bottom); }
-          else { push(left, top); push(bottom, right); }
-          break;
-        }
-        default: break;
+      // Only levels inside this cell's own range can cross it.
+      for (let i = 0; i < effective.length; ++i) {
+        const level = effective[i];
+        if (level <= low) continue;
+        if (level > high) break; // levels are ascending
+        emitCell(level, x, y, tl, tr, br, bl, perLevel[i]);
       }
     }
+
+    if (onProgress && y % reportEvery === 0) onProgress(y / (height - 1));
   }
 
-  return segments;
+  return perLevel;
 }
 
 /**
@@ -142,18 +189,22 @@ export function marchSquares(field, level) {
  * @returns {Array<{level: number, polylines: Array}>}
  */
 export function contourLevels(field, options = {}) {
-  const { chainTolerance = 0.01 } = options;
+  const { chainTolerance = 0.01, onProgress = null } = options;
   // Only an explicit list of elevations counts. Algorithms share one options bag,
   // and `levels` means a tonal step count to the hatching algorithm, so accepting
   // whatever turns up here silently mixes the two.
-  const levels = Array.isArray(options.levels)
+  const requested = Array.isArray(options.levels)
     ? options.levels
     : chooseLevels(field, options);
+  if (requested.length === 0) return [];
+
+  const levels = [...requested].sort((a, b) => a - b);
+  const perLevel = marchSquaresMulti(field, levels, onProgress);
 
   return levels
-    .map((level) => ({
+    .map((level, i) => ({
       level,
-      polylines: mergePolylines(marchSquares(field, level), chainTolerance),
+      polylines: mergePolylines(perLevel[i], chainTolerance),
     }))
     .filter((group) => group.polylines.length > 0);
 }

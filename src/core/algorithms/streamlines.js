@@ -84,11 +84,18 @@ function fieldDirection(gradient, x, y, mode) {
  * should stay open.
  */
 function integrate(gradient, seed, sign, options, isTooClose) {
-  const { stepSize, maxSteps, mode, width, height, minMagnitude } = options;
+  const { stepSize, maxSteps, mode, width, height, minMagnitude, recordSpacing } = options;
   const points = [];
 
   let x = seed.x;
   let y = seed.y;
+  // Integration steps finely for accuracy, but a plotted line does not need a
+  // vertex every half sample. Recording at a coarser spacing is what keeps the
+  // proximity index small, and the index is what the whole algorithm's cost
+  // turns on: at one vertex per step this was eight million points.
+  let sinceRecord = 0;
+  let lastX = x;
+  let lastY = y;
 
   for (let step = 0; step < maxSteps; ++step) {
     if (x < 0 || y < 0 || x > width - 1 || y > height - 1) break;
@@ -110,9 +117,21 @@ function integrate(gradient, seed, sign, options, isTooClose) {
     // Stop before crowding a stroke that is already drawn.
     if (isTooClose(nx, ny)) break;
 
-    points.push(nx, ny);
+    sinceRecord += Math.hypot(nx - lastX, ny - lastY);
+    if (sinceRecord >= recordSpacing) {
+      points.push(nx, ny);
+      sinceRecord = 0;
+      lastX = nx;
+      lastY = ny;
+    }
+
     x = nx;
     y = ny;
+  }
+
+  // Always finish on the last position, so the stroke reaches where it stopped.
+  if (points.length < 2 || points[points.length - 2] !== x || points[points.length - 1] !== y) {
+    points.push(x, y);
   }
 
   return points;
@@ -150,6 +169,8 @@ export function evenlySpacedStreamlines(gradient, options = {}) {
     minMagnitude: 0,
     maxLines: 20000,
     ...options,
+    recordSpacing:
+      options.recordSpacing ?? Math.max(options.stepSize ?? 0.5, (options.separation ?? 5) / 3),
     width: gradient.width,
     height: gradient.height,
   };
@@ -219,8 +240,18 @@ export function evenlySpacedStreamlines(gradient, options = {}) {
     const line = queue.shift();
 
     // Each accepted stroke offers seeds one separation to either side, which is
-    // what keeps the spacing even rather than merely random.
+    // what keeps the spacing even rather than merely random. Candidates are
+    // placed at intervals along the stroke rather than at every vertex: seeding
+    // from every vertex proposes hundreds of candidates per stroke that all fall
+    // within a separation of one another and are rejected in turn.
+    let travelled = separation;
     for (let i = 0; i < line.length; i += 2) {
+      if (i >= 2) {
+        travelled += Math.hypot(line[i] - line[i - 2], line[i + 1] - line[i - 1]);
+      }
+      if (travelled < separation) continue;
+      travelled = 0;
+
       const x = line[i];
       const y = line[i + 1];
       const direction = fieldDirection(gradient, x, y, settings.mode);

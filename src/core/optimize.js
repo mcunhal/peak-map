@@ -122,18 +122,30 @@ function createPointIndex(cellSize) {
       }
     },
 
-    /** Nearest live entry, or null when the index is exhausted. */
-    nearest(x, y) {
+    /**
+     * Nearest live entry, or null when the index is exhausted.
+     *
+     * `maxDistance` bounds the search. Without it, a lookup that has nothing
+     * nearby keeps widening until it finds the nearest live entry anywhere on
+     * the grid, however far away, only for the caller to reject it for being out
+     * of tolerance. That is quadratic in the grid, and it is worst exactly when
+     * the geometry is sparse: chaining a contour of 493 segments took five
+     * seconds while one of 11920 segments took under one.
+     */
+    nearest(x, y, maxDistance = Infinity) {
       if (live === 0) return null;
 
       const cx = Math.floor(x / cellSize);
       const cy = Math.floor(y / cellSize);
       // Far enough to reach every occupied cell from here; beyond it there is
       // nothing left to find.
-      const maxRing =
+      let maxRing =
         Math.max(Math.abs(cx - minCx), Math.abs(cx - maxCx)) +
         Math.max(Math.abs(cy - minCy), Math.abs(cy - maxCy)) +
         1;
+      if (Number.isFinite(maxDistance)) {
+        maxRing = Math.min(maxRing, Math.ceil(maxDistance / cellSize) + 1);
+      }
 
       let best = null;
       let bestDistance = Infinity;
@@ -239,6 +251,17 @@ export function deduplicateSegments(polylines, tolerance) {
   const out = [];
 
   for (const line of polylines) {
+    // Kept segments are accumulated into runs rather than emitted one by one.
+    // Breaking a long stroke into thousands of two-point pieces and asking the
+    // merge pass to sew them back together again costs far more than the
+    // duplicates it removes: on a dense field that was tens of seconds of work
+    // to arrive back where it started.
+    let run = [];
+    const flush = () => {
+      if (run.length >= 4) out.push(run);
+      run = [];
+    };
+
     for (let i = 2; i < line.length; i += 2) {
       const ax = line[i - 2];
       const ay = line[i - 1];
@@ -250,16 +273,23 @@ export function deduplicateSegments(polylines, tolerance) {
       const qbx = Math.round(bx / tolerance);
       const qby = Math.round(by / tolerance);
 
-      // A segment shorter than the tolerance carries no information.
+      // A segment shorter than the tolerance carries no information, but it does
+      // not interrupt the stroke either.
       if (qax === qbx && qay === qby) continue;
 
       const forward = qax + ',' + qay + ',' + qbx + ',' + qby;
       const backward = qbx + ',' + qby + ',' + qax + ',' + qay;
-      if (seen.has(forward) || seen.has(backward)) continue;
+      if (seen.has(forward) || seen.has(backward)) {
+        flush();
+        continue;
+      }
 
       seen.add(forward);
-      out.push([ax, ay, bx, by]);
+      if (run.length === 0) run.push(ax, ay);
+      run.push(bx, by);
     }
+
+    flush();
   }
 
   return out;
@@ -291,7 +321,7 @@ export function mergePolylines(polylines, tolerance, { allowReverse = true } = {
     // Extend forward for as long as something meets the end of the chain.
     for (;;) {
       const [ex, ey] = endOf(current);
-      const hit = index.nearest(ex, ey);
+      const hit = index.nearest(ex, ey, tolerance);
       if (!hit) break;
       if (Math.hypot(hit.x - ex, hit.y - ey) > tolerance) break;
 
@@ -309,7 +339,7 @@ export function mergePolylines(polylines, tolerance, { allowReverse = true } = {
     // contour segments do: they arrive in scan order, not in ring order.
     for (;;) {
       const [sx, sy] = startOf(current);
-      const hit = index.nearest(sx, sy);
+      const hit = index.nearest(sx, sy, tolerance);
       if (!hit) break;
       if (Math.hypot(hit.x - sx, hit.y - sy) > tolerance) break;
 
