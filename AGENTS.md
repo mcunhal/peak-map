@@ -262,7 +262,32 @@ informative way.
   to Covilha, Manteigas and Seia — the three municipalities that meet at the
   summit.
 
-  What remains is the point-cloud work itself: laz-perf, octree traversal, ground
-  returns, and gridding.
+  **The point cloud is the wrong route.** DGT also publishes rasters, through a
+  STAC catalogue at `https://cdd.dgterritorio.gov.pt/dgt-be/v1/collections`,
+  which is public and needs no account to read:
+
+      MDT-50cm, MDT-2m    terrain, bare earth
+      MDS-50cm, MDS-2m    surface, including trees and buildings
+      LAZ                 the point cloud
+      ORTOS-1995..2025    orthophotos
+      ACORES-*            the Azores
+
+  `/collections/MDT-50cm/items` returns STAC items whose ids embed the same tile
+  name (`MDT-50cm-197501-07-2025`), and each carries one asset: a Float32 GeoTIFF
+  in EPSG:3763, 2000x2000 pixels for a square kilometre, nodata -999, about 16MB.
+  That is twenty times smaller than the LAZ for the same ground and already
+  gridded, so laz-perf, octree traversal and ground classification all fall away.
+  The collection's `sectioning` field points at the very grid file the formula
+  above was checked against.
+
+  The catalogue is public; the objects are not. They sit in MinIO behind
+  `stor-002.a.acnca.pt:9000` and answer 403 without credentials, which is what
+  the site's cart and order system exists to provide.
+
+  That rules out fetching them from the deployed app, and not only because of the
+  403: personal credentials in a public web app would be handed to every visitor.
+  The two designs that work are loading a GeoTIFF the user has already ordered,
+  and mirroring ordered tiles to private storage the app owns. Both need only a
+  GeoTIFF reader and the projection in `ptLidarGrid.js`.
 - 2-opt path refinement. The sort interface is open for it.
 - National high-resolution DEM services.
