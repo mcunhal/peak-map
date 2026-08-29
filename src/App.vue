@@ -564,9 +564,10 @@ h3 {
   pointer-events: none;
   opacity: 0;
   transition: opacity 100ms ease-in-out;
-  background-position: 0px 0px, 10px 10px;
-  background-size: 20px 20px;
-  background-image: linear-gradient(45deg, #bbb 25%, transparent 25%, transparent 75%, #bbb 75%, #bbb 100%),linear-gradient(45deg, #bbb 25%, white 25%, white 75%, #bbb 75%, #bbb 100%);
+  /* No background. Upstream painted a checkerboard here to show where the
+     overlay sat, which is opaque and sits between the sheet and the map: with
+     the paper turned transparent you saw the checkers rather than the terrain
+     the lines were drawn from. */
 }
 .close-link {
   margin-top: 8px;
