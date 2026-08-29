@@ -36,6 +36,7 @@ appState.setBounds = setBounds;
 appState.listenToEvents = listenToEvents;
 appState.addGpxFiles = addGpxFiles;
 appState.removeTrack = removeTrack;
+appState.redrawPreview = redrawPreview;
 
 function init() {
   updateSizes();
@@ -247,6 +248,7 @@ function buildRequest(corners) {
 }
 
 let lastResult = null;
+let lastTarget = null;
 
 function updateMap() {
   if (!map) return;
@@ -292,10 +294,8 @@ function updateMap() {
         maxElevation: Math.round(result.elevation.max),
       };
       canvas.style.opacity = 1;
-      drawPreview(canvas, result.page, result.layers, {
-        background: appState.includeBackground ? appState.paperColor : '#ffffff',
-        target,
-      });
+      lastTarget = target;
+      redrawPreview();
     })
     .catch((error) => {
       if (isCancellation(error)) return;
@@ -306,6 +306,23 @@ function updateMap() {
 
 function exportToSVG() {
   return lastResult ? lastResult.svg : null;
+}
+
+/**
+ * Repaint the preview from the last render.
+ *
+ * Paper opacity only changes how the sheet is displayed, so it must not cost a
+ * new render: the terrain has not changed, only whether you can see through the
+ * paper to the map beneath it.
+ */
+function redrawPreview() {
+  const canvas = getPreviewCanvas();
+  if (!canvas || !lastResult) return;
+  drawPreview(canvas, lastResult.page, lastResult.layers, {
+    background: appState.paperColor,
+    backgroundAlpha: Number(appState.paperOpacity) / 100,
+    target: lastTarget,
+  });
 }
 
 /** Parse dropped or chosen GPX files and add them as tracks. */

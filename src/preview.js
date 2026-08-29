@@ -13,6 +13,10 @@
  * @param {Array}  layers - polylines in millimetres
  * @param {object} [options]
  * @param {string} [options.background] - paper colour
+ * @param {number} [options.backgroundAlpha] - how opaque the sheet is drawn, 0..1.
+ *   Below 1 the map shows through, which is the only way to judge whether the
+ *   lines have landed on the terrain they were meant to. Preview only: it has no
+ *   bearing on the exported file.
  * @param {boolean} [options.showMargins]
  * @param {object} [options.target] - where the drawable area sits, in CSS pixels
  *   ({x, y, width, height}). Given this, the sheet is placed so its drawable area
@@ -20,7 +24,12 @@
  *   region of the map it was rendered from. Without it the sheet is centred.
  */
 export function drawPreview(canvas, page, layers, options = {}) {
-  const { background = '#ffffff', showMargins = true, target = null } = options;
+  const {
+    background = '#ffffff',
+    backgroundAlpha = 1,
+    showMargins = true,
+    target = null,
+  } = options;
 
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -58,9 +67,15 @@ export function drawPreview(canvas, page, layers, options = {}) {
   ctx.translate(offsetX, offsetY);
   ctx.scale(scale, scale);
 
-  // The sheet.
-  ctx.fillStyle = background;
-  ctx.fillRect(0, 0, page.widthMm, page.heightMm);
+  // The sheet. Skipped entirely when fully transparent, rather than painted with
+  // zero alpha, so nothing is spent on it.
+  if (backgroundAlpha > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, backgroundAlpha);
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, page.widthMm, page.heightMm);
+    ctx.restore();
+  }
 
   if (showMargins) {
     ctx.strokeStyle = 'rgba(0,0,0,0.18)';

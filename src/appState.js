@@ -51,6 +51,8 @@ const appState = {
   margin: 15,
   paperColor: '#ffffff',
   includeBackground: true,
+  // Preview only; the exported file is unaffected.
+  paperOpacity: 100,
   terrainPenColor: '#161616',
   terrainPenWidth: 0.25,
 

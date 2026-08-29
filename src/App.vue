@@ -201,6 +201,14 @@
           </div>
         </div>
         <div class='row'>
+          <div class='col'>Paper opacity</div>
+          <div class='col c-2'>
+            <input type='range' min='0' max='100' step='1' v-model='paperOpacity'>
+            <input type='number' step='1' min='0' max='100' v-model='paperOpacity'>
+          </div>
+        </div>
+        <div class='row'><div class='col'></div><div class='col c-2 hint'>Preview only. Turn it down to see the lines against the map; the exported file is unaffected.</div></div>
+        <div class='row'>
           <div class='col'>Terrain pen</div>
           <div class='col c-2'>
             <input type='color' v-model='terrainPenColor'>
@@ -403,6 +411,10 @@ export default {
     // Pen colour and width are per track, so they need their own deep watch.
     this.unwatch.push(
       this.$watch('tracks', () => { if (this.shouldDraw) this.scheduleRender(); }, { deep: true })
+    );
+    // Display-only, so repaint from the last render rather than making a new one.
+    this.unwatch.push(
+      this.$watch('paperOpacity', () => appState.redrawPreview && appState.redrawPreview())
     );
   },
 
