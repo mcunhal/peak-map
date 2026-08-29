@@ -14,9 +14,13 @@
  * @param {object} [options]
  * @param {string} [options.background] - paper colour
  * @param {boolean} [options.showMargins]
+ * @param {object} [options.target] - where the drawable area sits, in CSS pixels
+ *   ({x, y, width, height}). Given this, the sheet is placed so its drawable area
+ *   covers exactly that rectangle, which is how the preview lines up with the
+ *   region of the map it was rendered from. Without it the sheet is centred.
  */
 export function drawPreview(canvas, page, layers, options = {}) {
-  const { background = '#ffffff', showMargins = true } = options;
+  const { background = '#ffffff', showMargins = true, target = null } = options;
 
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -29,14 +33,26 @@ export function drawPreview(canvas, page, layers, options = {}) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Fit the sheet into the canvas with a small surround.
-  const padding = 12 * dpr;
-  const scale = Math.min(
-    (canvas.width - padding * 2) / page.widthMm,
-    (canvas.height - padding * 2) / page.heightMm
-  );
-  const offsetX = (canvas.width - page.widthMm * scale) / 2;
-  const offsetY = (canvas.height - page.heightMm * scale) / 2;
+  let scale;
+  let offsetX;
+  let offsetY;
+
+  if (target) {
+    // Place the drawable area over the given rectangle; the paper margins then
+    // fall outside it, which is what the margins are.
+    scale = (target.width * dpr) / page.drawable.width;
+    offsetX = target.x * dpr - page.drawable.x * scale;
+    offsetY = target.y * dpr - page.drawable.y * scale;
+  } else {
+    // Fit the sheet into the canvas with a small surround.
+    const padding = 12 * dpr;
+    scale = Math.min(
+      (canvas.width - padding * 2) / page.widthMm,
+      (canvas.height - padding * 2) / page.heightMm
+    );
+    offsetX = (canvas.width - page.widthMm * scale) / 2;
+    offsetY = (canvas.height - page.heightMm * scale) / 2;
+  }
 
   ctx.save();
   ctx.translate(offsetX, offsetY);

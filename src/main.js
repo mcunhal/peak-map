@@ -12,6 +12,8 @@ import { buildRasterStyle } from './config';
 import { requestRender, isCancellation, cancelPending } from './renderService';
 import { drawPreview, formatMetrics } from './preview';
 import { parseGpx } from './gpx/parse';
+import { createPage } from './core/page';
+import { cropBboxToAspect } from './dem/tileMath';
 
 window.addEventListener('error', logError);
 
@@ -85,20 +87,49 @@ function redraw() {
   updateMap();
 }
 
-/** The region currently framed by the map. */
+function pageSettings() {
+  return {
+    paper: appState.paper,
+    orientation: appState.orientation,
+    margin: Number(appState.margin),
+  };
+}
+
+/**
+ * The region the sheet will actually cover.
+ *
+ * The map viewport and the sheet rarely share a shape, so the viewport is cropped
+ * to the sheet's proportions about its centre. Without this the drawing shows a
+ * different region from the one that was framed, and stretches it to fit.
+ */
 function currentBounds() {
   const bounds = map.getBounds();
-  return {
+  const viewport = {
     west: bounds.getWest(),
     south: bounds.getSouth(),
     east: bounds.getEast(),
     north: bounds.getNorth(),
   };
+
+  const { drawable } = createPage(pageSettings());
+  return cropBboxToAspect(viewport, drawable.width / drawable.height);
 }
 
-function buildRequest() {
+/** Where that region sits on screen, so the preview can be laid over it. */
+function boundsToScreenRect(bbox) {
+  const topLeft = map.project([bbox.west, bbox.north]);
+  const bottomRight = map.project([bbox.east, bbox.south]);
   return {
-    bbox: currentBounds(),
+    x: topLeft.x,
+    y: topLeft.y,
+    width: bottomRight.x - topLeft.x,
+    height: bottomRight.y - topLeft.y,
+  };
+}
+
+function buildRequest(bbox) {
+  return {
+    bbox,
     sourceId: appState.demSource,
     detail: Number(appState.detail),
     algorithm: appState.algorithm,
@@ -119,11 +150,7 @@ function buildRequest() {
     },
     tracks: appState.tracks.map((t) => ({ name: t.name, points: t.points })),
     trackMode: appState.trackMode,
-    page: {
-      paper: appState.paper,
-      orientation: appState.orientation,
-      margin: Number(appState.margin),
-    },
+    page: pageSettings(),
     pens: {
       terrain: { color: appState.terrainPenColor, width: Number(appState.terrainPenWidth) },
       tracks: appState.tracks.map((t) => ({ color: t.color, width: Number(t.width) })),
@@ -167,7 +194,12 @@ function updateMap() {
   appState.error = null;
   appState.renderProgress = { message: 'Starting', fraction: 0 };
 
-  requestRender(buildRequest(), (progress) => {
+  // Captured now, so the preview lands where the region was when it was framed
+  // even if the map has moved on by the time the render finishes.
+  const bbox = currentBounds();
+  const target = boundsToScreenRect(bbox);
+
+  requestRender(buildRequest(bbox), (progress) => {
     appState.renderProgress = progress;
   })
     .then((result) => {
@@ -186,7 +218,8 @@ function updateMap() {
       };
       canvas.style.opacity = 1;
       drawPreview(canvas, result.page, result.layers, {
-        background: appState.paperColor,
+        background: appState.includeBackground ? appState.paperColor : '#ffffff',
+        target,
       });
     })
     .catch((error) => {

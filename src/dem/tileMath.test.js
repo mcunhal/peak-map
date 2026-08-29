@@ -132,3 +132,64 @@ describe('lngLatToField', () => {
     expect(lngLatToField(bbox, 100, 100, -9, 41.9).y).toBeLessThan(10);
   });
 });
+
+describe('cropBboxToAspect', () => {
+  // Serra da Estrela: a viewport wider than it is tall.
+  const bbox = { west: -8.0, south: 40.1, east: -7.2, north: 40.6 };
+
+  const projected = (b) => ({
+    width: lngToTileX(b.east, 0) - lngToTileX(b.west, 0),
+    height: latToTileY(b.south, 0) - latToTileY(b.north, 0),
+  });
+
+  it('produces the requested ratio in projected space', async () => {
+    const { cropBboxToAspect } = await import('./tileMath');
+    for (const aspect of [0.5, 1, 297 / 210, 2.4]) {
+      const p = projected(cropBboxToAspect(bbox, aspect));
+      expect(p.width / p.height).toBeCloseTo(aspect, 9);
+    }
+  });
+
+  it('keeps the centre of the viewport', async () => {
+    const { cropBboxToAspect } = await import('./tileMath');
+    const out = cropBboxToAspect(bbox, 1);
+    expect((out.west + out.east) / 2).toBeCloseTo((bbox.west + bbox.east) / 2, 6);
+    const midY = (latToTileY(bbox.north, 0) + latToTileY(bbox.south, 0)) / 2;
+    const outMidY = (latToTileY(out.north, 0) + latToTileY(out.south, 0)) / 2;
+    expect(outMidY).toBeCloseTo(midY, 9);
+  });
+
+  it('only ever shrinks, so the crop stays on screen', async () => {
+    const { cropBboxToAspect } = await import('./tileMath');
+    for (const aspect of [0.3, 1, 5]) {
+      const out = cropBboxToAspect(bbox, aspect);
+      expect(out.west).toBeGreaterThanOrEqual(bbox.west - 1e-9);
+      expect(out.east).toBeLessThanOrEqual(bbox.east + 1e-9);
+      expect(out.south).toBeGreaterThanOrEqual(bbox.south - 1e-9);
+      expect(out.north).toBeLessThanOrEqual(bbox.north + 1e-9);
+    }
+  });
+
+  it('leaves a box that already has the ratio alone', async () => {
+    const { cropBboxToAspect } = await import('./tileMath');
+    const p = projected(bbox);
+    const out = cropBboxToAspect(bbox, p.width / p.height);
+    expect(out.west).toBeCloseTo(bbox.west, 9);
+    expect(out.north).toBeCloseTo(bbox.north, 9);
+  });
+
+  it('does not confuse degrees with projected distance', async () => {
+    const { cropBboxToAspect } = await import('./tileMath');
+    // At 40 degrees north a degree of longitude is about 0.77 of a degree of
+    // latitude, so a naive crop in degrees is wrong by that factor.
+    const square = cropBboxToAspect(bbox, 1);
+    const degreeWidth = square.east - square.west;
+    const degreeHeight = square.north - square.south;
+    expect(degreeWidth / degreeHeight).toBeGreaterThan(1.2);
+  });
+
+  it('rejects a nonsensical aspect', async () => {
+    const { cropBboxToAspect } = await import('./tileMath');
+    expect(() => cropBboxToAspect(bbox, 0)).toThrow(/aspect/i);
+  });
+});

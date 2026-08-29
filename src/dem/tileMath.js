@@ -98,3 +98,49 @@ export function lngLatToField(bbox, fieldWidth, fieldHeight, lng, lat) {
 
   return { x, y };
 }
+
+/**
+ * Crop a bounding box to a target width/height ratio, keeping its centre.
+ *
+ * The map viewport and the sheet rarely share a shape: the window might be tall
+ * and the paper landscape. Sampling the whole viewport onto a page-shaped grid
+ * stretches the terrain, and leaves the drawing showing a different region from
+ * the one that was framed. Cropping first means the sheet is exactly a
+ * page-shaped piece of what is on screen.
+ *
+ * The comparison has to happen in projected space. A degree of longitude is much
+ * shorter than a degree of latitude away from the equator, so comparing the two
+ * in degrees would crop to the wrong shape by a factor of cos(latitude) - about
+ * 0.77 at Serra da Estrela.
+ *
+ * @param {object} bbox   - {west, south, east, north}
+ * @param {number} aspect - desired width divided by height
+ */
+export function cropBboxToAspect(bbox, aspect) {
+  if (!(aspect > 0)) throw new Error('Aspect ratio must be positive');
+
+  const west = lngToTileX(bbox.west, 0);
+  const east = lngToTileX(bbox.east, 0);
+  const north = latToTileY(bbox.north, 0);
+  const south = latToTileY(bbox.south, 0);
+
+  const centreX = (west + east) / 2;
+  const centreY = (north + south) / 2;
+
+  let halfWidth = (east - west) / 2;
+  let halfHeight = (south - north) / 2;
+
+  // Only ever shrink, so the result stays inside what the viewport shows.
+  if (halfWidth / halfHeight > aspect) {
+    halfWidth = halfHeight * aspect;
+  } else {
+    halfHeight = halfWidth / aspect;
+  }
+
+  return {
+    west: tileXToLng(centreX - halfWidth, 0),
+    east: tileXToLng(centreX + halfWidth, 0),
+    north: tileYToLat(centreY - halfHeight, 0),
+    south: tileYToLat(centreY + halfHeight, 0),
+  };
+}
