@@ -32,6 +32,8 @@ const appState = {
   contourInterval: '',
   contourCount: 25,
   sunAzimuth: 315,
+  weightMode: 'passes',
+  weightPasses: 3,
   tanakaClasses: 3,
   hachureMinStroke: 0.8,
   hachureMaxStroke: 3.5,

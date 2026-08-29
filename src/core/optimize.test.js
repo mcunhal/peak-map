@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   simplifyPolyline, deduplicateSegments, mergePolylines, sortPolylines,
-  reloopPolylines, optimizePolylines, optimizeLayers, measurePlot,
+  reloopPolylines, optimizePolylines, optimizeLayers, measurePlot, multipassPolylines,
   compareMetrics, vpypeRecipe, polylineLength, isClosed,
 } from './optimize';
 
@@ -316,5 +316,62 @@ describe('vpypeRecipe', () => {
     const recipe = vpypeRecipe({}, { input: 'a.svg', output: 'b.svg' });
     expect(recipe).toContain('read "a.svg"');
     expect(recipe).toContain('write "b.svg"');
+  });
+});
+
+describe('multipassPolylines', () => {
+  const line = [0, 0, 10, 0, 10, 10];
+
+  it('leaves a single pass alone', () => {
+    expect(multipassPolylines([line], 1)).toEqual([line]);
+    expect(multipassPolylines([line], 0)).toEqual([line]);
+  });
+
+  it('lays down more ink for the same number of pen lifts', () => {
+    const once = multipassPolylines([line], 1);
+    const thrice = multipassPolylines([line], 3);
+    // One stroke still, but three times the drawn length.
+    expect(thrice).toHaveLength(once.length);
+    expect(totalLength(thrice)).toBeCloseTo(totalLength(once) * 3, 6);
+  });
+
+  it('retraces rather than jumping back to the start', () => {
+    const [out] = multipassPolylines([line], 2);
+    // The second pass begins where the first ended, so there is no pen-up move.
+    expect(out.slice(0, 6)).toEqual(line);
+    expect(out.slice(-2)).toEqual([0, 0]);
+  });
+
+  it('is applied after deduplication, which would otherwise undo it', () => {
+    // Retracing looks exactly like a duplicate segment, so order matters.
+    const passes = optimizePolylines([line], {
+      dedupTolerance: 0.05, mergeTolerance: 0.15, simplifyTolerance: 0.01, passes: 3,
+    });
+    const single = optimizePolylines([line], {
+      dedupTolerance: 0.05, mergeTolerance: 0.15, simplifyTolerance: 0.01, passes: 1,
+    });
+    expect(totalLength(passes)).toBeGreaterThan(totalLength(single) * 2.5);
+  });
+
+  it('shows up in the plot estimate as real extra work', () => {
+    const layers = [{ id: 'a', polylines: [line], passes: 3 }];
+    const plain = measurePlot(optimizeLayers([{ id: 'a', polylines: [line] }]));
+    const heavy = measurePlot(optimizeLayers(layers));
+    expect(heavy.penDownMm).toBeGreaterThan(plain.penDownMm * 2.5);
+    // Still one stroke, so no extra pen lifts.
+    expect(heavy.penLifts).toBe(plain.penLifts);
+  });
+
+  it('lets each layer ask for its own weight', () => {
+    const out = optimizeLayers([
+      { id: 'light', polylines: [line], passes: 1 },
+      { id: 'heavy', polylines: [line], passes: 4 },
+    ]);
+    expect(totalLength(out[1].polylines)).toBeGreaterThan(totalLength(out[0].polylines) * 3);
+  });
+
+  it('is named in the vpype recipe', () => {
+    expect(vpypeRecipe({ passes: 3 })).toContain('multipass --count 3');
+    expect(vpypeRecipe({ passes: 1 })).not.toContain('multipass');
   });
 });

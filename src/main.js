@@ -230,6 +230,8 @@ function buildRequest(corners) {
       penLiftTime: Number(appState.penLiftTime),
     },
     background: appState.includeBackground ? appState.paperColor : null,
+    weightMode: appState.weightMode,
+    weightPasses: Number(appState.weightPasses),
     compass: {
       show: appState.showCompass,
       radius: Number(appState.compassRadius),

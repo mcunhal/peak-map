@@ -25,6 +25,7 @@ const DEFAULTS = {
   simplifyTolerance: 0.05,
   reloop: true,
   sort: true,
+  passes: 1,
   allowReverse: true,
   origin: [0, 0],
 };
@@ -451,6 +452,36 @@ export function reloopPolylines(polylines, tolerance) {
   });
 }
 
+/**
+ * Draw each stroke several times, to lay down more ink with one pen.
+ *
+ * This is how a plotter makes a line darker. A pen has one width, so tone
+ * otherwise has to come from density: more strokes, or longer ones with smaller
+ * gaps, which is what the hachure and hatching algorithms do. Where the geometry
+ * is fixed and only its weight should change, repeating the stroke is the only
+ * lever left that does not require swapping pens mid-plot.
+ *
+ * The stroke is retraced rather than redrawn: out, back, out again, as one path.
+ * That lays down the same ink for a single pen lift instead of one per pass.
+ *
+ * It must run after deduplication, which would otherwise recognise the return
+ * journey as the same segment drawn backwards and remove it.
+ */
+export function multipassPolylines(polylines, passes) {
+  const count = Math.round(passes);
+  if (!(count > 1)) return polylines;
+
+  return polylines.map((line) => {
+    const back = reversed(line);
+    // Drop the shared joint each time round, so the pen does not pause on it.
+    let out = line;
+    for (let pass = 1; pass < count; ++pass) {
+      out = out.concat((pass % 2 === 1 ? back : line).slice(2));
+    }
+    return out;
+  });
+}
+
 /* ---------------------------------------------------------------- pipeline */
 
 /** Run the full pipeline over one layer's polylines. */
@@ -467,6 +498,8 @@ export function optimizePolylines(polylines, options = {}) {
   if (o.simplifyTolerance > 0) {
     lines = lines.map((l) => simplifyPolyline(l, o.simplifyTolerance));
   }
+  // Last, so deduplication does not undo it.
+  if (o.passes > 1) lines = multipassPolylines(lines, o.passes);
 
   return lines.filter((l) => pointCount(l) >= 2);
 }
@@ -475,7 +508,12 @@ export function optimizePolylines(polylines, options = {}) {
 export function optimizeLayers(layers, options = {}) {
   return layers.map((layer) => ({
     ...layer,
-    polylines: optimizePolylines(layer.polylines, options),
+    // A layer may ask for extra passes of its own, which is how an algorithm
+    // varies weight without varying the pen.
+    polylines: optimizePolylines(layer.polylines, {
+      ...options,
+      passes: layer.passes ?? options.passes ?? 1,
+    }),
   }));
 }
 
@@ -562,6 +600,7 @@ export function vpypeRecipe(options = {}, { input = 'map.svg', output = 'plot.sv
   if (o.simplifyTolerance > 0) {
     parts.push(`linesimplify --tolerance ${mm(o.simplifyTolerance)}`);
   }
+  if (o.passes > 1) parts.push(`multipass --count ${Math.round(o.passes)}`);
   parts.push(`write "${output}"`);
 
   return parts.join(' \\\n  ');

@@ -105,6 +105,16 @@
             <input type='number' step='1' v-model='sunAzimuth' min='0' max='359'>
           </div>
         </div>
+        <div class='row' v-if='variesWeight'>
+          <div class='col'>Heavier lines by</div>
+          <div class='col c-2'>
+            <select v-model='weightMode'>
+              <option value='passes'>drawing them again (one pen)</option>
+              <option value='pen'>a wider pen (swap pens per layer)</option>
+            </select>
+            <input v-if="weightMode === 'passes'" type='number' step='1' min='1' max='6' v-model='weightPasses'>
+          </div>
+        </div>
         <div class='row' v-if="algorithm === 'tanaka'">
           <div class='col'>Weight classes</div>
           <div class='col c-2'>
@@ -355,6 +365,7 @@ const RENDER_INPUTS = [
   'paper', 'orientation', 'margin', 'terrainPenColor', 'terrainPenWidth',
   'includeBackground', 'paperColor', 'dotPitch', 'dotLength',
   'hachureMinStroke', 'hachureMaxStroke', 'hachureGap',
+  'weightMode', 'weightPasses',
   'showCompass', 'compassRadius', 'compassCorner', 'compassColor', 'compassPenWidth',
   'angle',
   'trackMode',
@@ -417,6 +428,9 @@ export default {
     },
     isLit() {
       return this.algorithm === 'tanaka' || this.algorithm === 'hillshade-hatching';
+    },
+    variesWeight() {
+      return this.algorithm === 'tanaka' || this.algorithm === 'contours-by-level';
     },
     isFlowFamily() {
       return this.algorithm.indexOf('streamlines') === 0 || this.algorithm === 'hachures';

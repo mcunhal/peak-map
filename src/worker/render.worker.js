@@ -69,6 +69,8 @@ async function render(request, progress, stillCurrent) {
     machine = {},
     background = null,
     compass = null,
+    weightMode = 'passes',
+    weightPasses = 3,
   } = request;
 
   const source = getDemSource(sourceId);
@@ -156,13 +158,29 @@ async function render(request, progress, stillCurrent) {
       { terrainPen: pens.terrain || { color: '#161616', width: 0.3 } }
     );
 
-    // Algorithms that vary pen weight return several groups; each is its own pen.
+    // Algorithms that vary line weight return several groups. There are two ways
+    // to honour that on a plotter, and they are not equivalent:
+    //
+    //   passes  draw the heavier groups more than once, so one pen renders the
+    //           whole sheet. Costs plotting time.
+    //   pen     give each group its own width, which needs the pens actually
+    //           swapped between layers. Free, if you are willing to do that.
+    //
+    // Passes is the default, because a sheet plotted with one pen and no
+    // intervention is the case that has to work.
     if (groups.length > 1) {
-      layers = groups.map((group, i) => ({
+      const base = pens.terrain || { color: '#161616', width: 0.3 };
+      const byPasses = (weightMode || 'passes') === 'passes';
+      const maxPasses = Math.max(1, Math.round(weightPasses || 3));
+
+      layers = groups.map((group) => ({
         id: group.name,
         label: group.name,
-        penColor: (pens.terrain && pens.terrain.color) || '#161616',
-        penWidth: Number((0.15 + group.weight * 0.35).toFixed(2)),
+        penColor: base.color,
+        penWidth: byPasses
+          ? Number(base.width)
+          : Number((0.15 + group.weight * 0.35).toFixed(2)),
+        passes: byPasses ? Math.max(1, Math.round(group.weight * maxPasses)) : 1,
         polylines: group.polylines.map((line) => mapper.polylineToMm(line)),
       }));
     }
