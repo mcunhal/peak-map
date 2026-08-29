@@ -220,5 +220,31 @@ informative way.
   MDT02 at 2m (PNOA, free for non-commercial use via CNIG) and Portugal publishes
   0.5m and 2m DTM under CC BY 4.0 via DGT. That is 15 to 60 times finer, and it is
   the only thing that changes what a pen can draw at small scales.
+
+- **Portuguese LiDAR: reachable, but it is a point cloud.** DGT's usual channels
+  are dead ends — WCS is switched off, the WMS serves a coloured picture, and the
+  INSPIRE ATOM download is the 50m hypsometry, coarser than Terrarium. The live
+  route is `portugal3d.dgterritorio.gov.pt`, which is CORS-open, accepts `Range`,
+  and exposes:
+
+      GET /info/{id}                          tile metadata as JSON
+      GET /laz/meta/{file}?location=portugal  octree hierarchy, ~40KB
+      GET /laz/{file}?location=portugal       the points, octree-ordered
+      GET /search/position/{lat},{lon}        elevation at one point
+      GET /search/place/{name}                geocoding
+
+  Worked example: `/continente/LO-235379` gives filename
+  `LO-235379-04-2024_v01.laz`, a 1000x1000m tile in EPSG:3763 at Seia, and the
+  point file is 323MB.
+
+  Using it is a real build, not a source registry entry. It is LAZ, so it needs a
+  decoder (laz-perf, WASM); the points are octree-ordered, so a coarse level has
+  to be selected rather than the whole 323MB fetched; ground returns have to be
+  separated from surface ones for a DTM; and EPSG:3763 has to be reprojected.
+
+  One piece is still unsolved: nothing found maps a coordinate to a tile id. The
+  ids are opaque (`LO-235379`), `/info` gives their EPSG:3763 origin but not the
+  inverse, no WFS publishes the grid, and the viewer picks tiles through a map
+  layer rather than computing them. Solve that before starting.
 - 2-opt path refinement. The sort interface is open for it.
 - National high-resolution DEM services.
