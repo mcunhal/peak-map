@@ -242,9 +242,27 @@ informative way.
   to be selected rather than the whole 323MB fetched; ground returns have to be
   separated from surface ones for a DTM; and EPSG:3763 has to be reprojected.
 
-  One piece is still unsolved: nothing found maps a coordinate to a tile id. The
-  ids are opaque (`LO-235379`), `/info` gives their EPSG:3763 origin but not the
-  inverse, no WFS publishes the grid, and the viewer picks tiles through a map
-  layer rather than computing them. Solve that before starting.
+  **The tile index is solved**, in `src/dem/ptLidarGrid.js`. Tile names look
+  opaque and are not: they encode the tile's own position on a one-kilometre grid
+  in EPSG:3763.
+
+      col = floor(x / 1000)
+      row = floor(y / 1000)
+      name = (col + 200) * 1000 + (row + 301)
+
+  Checked against every one of the 91196 tiles in DGT's published index
+  (`LiDAR2024_2025_Secciona.gpkg`, a GeoPackage, so plain SQLite) with no
+  mismatches, and every tile exactly 1000m square. Nothing needs shipping: the
+  index is a formula, and whether a tile was actually flown comes from `/info`,
+  which reports `exists` (about 8800 of the 91196 were not).
+
+  That module also carries the ETRS89 / Portugal TM06 projection both ways, with
+  no dependency. End to end: Torre at 40.3217N 7.6136W projects to (44154, 72684),
+  which names tile LO-244373, which the service confirms and reports as belonging
+  to Covilha, Manteigas and Seia — the three municipalities that meet at the
+  summit.
+
+  What remains is the point-cloud work itself: laz-perf, octree traversal, ground
+  returns, and gridding.
 - 2-opt path refinement. The sort interface is open for it.
 - National high-resolution DEM services.
