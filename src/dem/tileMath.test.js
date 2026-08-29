@@ -214,3 +214,87 @@ describe('createRegion', () => {
     ).toThrow(/collinear|area/i);
   });
 });
+
+describe('createRegion with perspective', () => {
+  // The trapezoid a tilted camera actually sees: measured from the app at
+  // pitch 55, where the far edge spans 2.886 degrees and the near edge 1.025.
+  const tilted = {
+    nw: { lng: -9.0431, lat: 41.6303 },
+    ne: { lng: -6.1569, lat: 41.6303 },
+    sw: { lng: -8.1123, lat: 39.8623 },
+    se: { lng: -7.0877, lat: 39.8623 },
+  };
+
+  it('knows the difference between a tilted sheet and a merely rotated one', async () => {
+    const { createRegion, regionFromBbox } = await import('./tileMath');
+    expect(createRegion(tilted).perspective).toBe(true);
+    expect(regionFromBbox({ west: -8, south: 40, east: -7, north: 41 }).perspective).toBe(false);
+  });
+
+  it('round-trips through a trapezoid', async () => {
+    const { createRegion } = await import('./tileMath');
+    const region = createRegion(tilted);
+    for (const [x, y] of [[0, 0], [900, 0], [0, 600], [900, 600], [450, 300], [123, 517]]) {
+      const { lng, lat } = region.toLngLat(900, 600, x, y);
+      const back = region.fromLngLat(900, 600, lng, lat);
+      expect(back.x).toBeCloseTo(x, 6);
+      expect(back.y).toBeCloseTo(y, 6);
+    }
+  });
+
+  it('puts the corners exactly where they were given', async () => {
+    const { createRegion } = await import('./tileMath');
+    const region = createRegion(tilted);
+    const check = (x, y, corner) => {
+      const p = region.toLngLat(1, 1, x, y);
+      expect(p.lng).toBeCloseTo(corner.lng, 9);
+      expect(p.lat).toBeCloseTo(corner.lat, 9);
+    };
+    check(0, 0, tilted.nw);
+    check(1, 0, tilted.ne);
+    check(0, 1, tilted.sw);
+    check(1, 1, tilted.se);
+  });
+
+  it('compresses the far half of the sheet, which is what tilting means', async () => {
+    const { createRegion } = await import('./tileMath');
+    const region = createRegion(tilted);
+    // A row near the top of the sheet must cover much more ground than one near
+    // the bottom. An affine region would give them the same width.
+    const rowWidth = (v) => {
+      const left = region.toLngLat(1, 1, 0, v);
+      const right = region.toLngLat(1, 1, 1, v);
+      return right.lng - left.lng;
+    };
+    expect(rowWidth(0.05) / rowWidth(0.95)).toBeGreaterThan(2);
+  });
+
+  it('spaces rows unevenly on the ground, as a camera does', async () => {
+    const { createRegion, latToTileY } = await import('./tileMath');
+    const region = createRegion(tilted);
+    const rowY = (v) => latToTileY(region.toLngLat(1, 1, 0.5, v).lat, 0);
+    // The top of the sheet is the far ground, and a camera makes a row up there
+    // cover far more ground than a row at the bottom does.
+    const near = rowY(1.0) - rowY(0.9);
+    const far = rowY(0.1) - rowY(0.0);
+    expect(far).toBeGreaterThan(near * 3);
+  });
+
+  it('still matches the affine case when the fourth corner completes it', async () => {
+    const { createRegion, regionFromBbox } = await import('./tileMath');
+    const bbox = { west: -8, south: 40, east: -7, north: 41 };
+    const affine = regionFromBbox(bbox);
+    const explicit = createRegion({
+      nw: { lng: -8, lat: 41 },
+      ne: { lng: -7, lat: 41 },
+      sw: { lng: -8, lat: 40 },
+      se: { lng: -7, lat: 40 },
+    });
+    for (const [x, y] of [[0, 0], [50, 25], [100, 100]]) {
+      const a = affine.toLngLat(100, 100, x, y);
+      const b = explicit.toLngLat(100, 100, x, y);
+      expect(b.lng).toBeCloseTo(a.lng, 12);
+      expect(b.lat).toBeCloseTo(a.lat, 12);
+    }
+  });
+});

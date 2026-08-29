@@ -127,13 +127,55 @@ function currentSheet() {
     return { lng: p.lng, lat: p.lat };
   };
 
+  // All four corners, because a tilted camera sees a trapezoid: the far edge
+  // covers far more ground than the near one, and three corners can only
+  // describe a parallelogram.
+  const cornersAt = (top) => ({
+    nw: at(x, top),
+    ne: at(x + width, top),
+    sw: at(x, y + height),
+    se: at(x + width, y + height),
+  });
+
+  // Near the horizon the far edge runs away to nothing useful, and past it
+  // unprojecting is meaningless. Pull the top of the sheet down until the
+  // perspective is severe but still finite, rather than letting it blow up.
+  const nearWidth = () => {
+    const c = cornersAt(y);
+    return Math.abs(c.se.lng - c.sw.lng);
+  };
+  const spread = (top) => {
+    const c = cornersAt(top);
+    const far = Math.abs(c.ne.lng - c.nw.lng);
+    const near = Math.abs(c.se.lng - c.sw.lng);
+    if (!Number.isFinite(far) || !Number.isFinite(near) || near === 0) return Infinity;
+    return far / near;
+  };
+
+  let top = y;
+  if (map.getPitch() > 0) {
+    const limit = 6;
+    let low = y;
+    let high = y + height * 0.9;
+    if (spread(low) > limit) {
+      // Binary search the highest top edge whose perspective stays inside the
+      // limit. Twenty steps is well under a pixel.
+      for (let i = 0; i < 20; ++i) {
+        const mid = (low + high) / 2;
+        if (spread(mid) > limit) low = mid;
+        else high = mid;
+      }
+      top = high;
+    }
+  }
+
+  const usedHeight = y + height - top;
+
   return {
-    screenRect: { x, y, width, height },
-    corners: {
-      nw: at(x, y),
-      ne: at(x + width, y),
-      sw: at(x, y + height),
-    },
+    screenRect: { x, y: top, width, height: usedHeight },
+    corners: cornersAt(top),
+    pitch: map.getPitch(),
+    clamped: top > y + 0.5,
   };
 }
 
@@ -218,6 +260,8 @@ function updateMap() {
   // even if the map has moved on by the time the render finishes.
   const sheet = currentSheet();
   const target = sheet.screenRect;
+  appState.sheetPitch = Math.round(sheet.pitch);
+  appState.sheetClamped = sheet.clamped;
 
   requestRender(buildRequest(sheet.corners), (progress) => {
     appState.renderProgress = progress;

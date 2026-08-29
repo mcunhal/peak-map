@@ -1,0 +1,53 @@
+import { it } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import { createNodeTileLoader } from './pngDecode';
+import { buildHeightField } from '../src/dem/buildHeightField';
+import { DEM_SOURCES } from '../src/dem/sources';
+import { createRegion } from '../src/dem/tileMath';
+import { renderTerrain } from '../src/core/algorithms/index';
+import { createPage, createPageMapper } from '../src/core/page';
+import { writeSvg } from '../src/core/svgWriter';
+import { optimizeLayers } from '../src/core/optimize';
+import { compassForPage } from '../src/core/compass';
+
+const OUT = process.env.SAMPLE_DIR || '.';
+const enabled = !!process.env.REAL_DATA;
+
+// Corners taken from the running app, A4 landscape with 12mm margins.
+const CORNERS = {
+  0: { nw:{lng:-8.2839,lat:40.684275}, ne:{lng:-6.9161,lat:40.684275},
+       sw:{lng:-8.2839,lat:39.973856}, se:{lng:-6.9161,lat:39.973856} },
+  50:{ nw:{lng:-8.734635,lat:41.240577}, ne:{lng:-6.465365,lat:41.240577},
+       sw:{lng:-8.089461,lat:39.933345}, se:{lng:-7.110539,lat:39.933345} },
+};
+
+it.skipIf(!enabled)('renders flat and tilted', async () => {
+  const page = createPage({ paper: 'A4', orientation: 'landscape', margin: 12 });
+  const aspect = page.drawable.width / page.drawable.height;
+  const fieldWidth = 820;
+  const fieldHeight = Math.round(fieldWidth / aspect);
+
+  for (const pitch of [0, 50]) {
+    const region = createRegion(CORNERS[pitch]);
+    const { field, zoom, tileCount } = await buildHeightField({
+      source: DEM_SOURCES.terrarium, region, fieldWidth, fieldHeight,
+      tileBudget: 140, loadTile: createNodeTileLoader(),
+    });
+
+    const mapper = createPageMapper(page, field);
+    const groups = renderTerrain(field, 'ridgeline', {
+      rowCount: 95, heightScale: 55, smoothSteps: 2, oceanLevel: 0,
+    });
+    const layers = optimizeLayers([
+      { id: 'terrain', label: 'terrain', penColor: '#161616', penWidth: 0.25,
+        polylines: groups[0].polylines.map((l) => mapper.polylineToMm(l)) },
+      { id: 'compass', label: 'compass', penColor: '#c1272d', penWidth: 0.35,
+        polylines: compassForPage(page, { radius: 11, bearing: 0 }) },
+    ], { dedupTolerance: 0.05, mergeTolerance: 0.15, simplifyTolerance: 0.08 });
+
+    writeSvg({ page, layers });
+    writeFileSync(`${OUT}/pitch-${pitch}.svg`,
+      writeSvg({ page, layers, title: `Pitch ${pitch}`, background: '#ffffff' }));
+    console.log(`PITCH ${pitch} perspective=${region.perspective} zoom=${zoom} tiles=${tileCount} paths=${layers.reduce((n,l)=>n+l.polylines.length,0)}`);
+  }
+}, 300000);

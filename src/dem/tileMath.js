@@ -100,36 +100,70 @@ export function lngLatToField(bbox, fieldWidth, fieldHeight, lng, lat) {
 }
 
 /**
- * The area a sheet covers, as a rotated rectangle.
+ * The area a sheet covers, as a quadrilateral.
  *
- * A bounding box cannot describe a rotated map: turn the map and the box of the
- * visible area is both larger than what is on screen and the wrong shape. The
- * sheet is instead described by three of its corners, which is enough, because
- * the mapping from screen pixels to projected coordinates is an affine one -
- * a translation, a scale and a rotation. Interpolating between the corners is
- * therefore exact rather than an approximation, at any bearing.
+ * A bounding box cannot describe a rotated map, and a parallelogram cannot
+ * describe a tilted one. Tilting the camera makes the visible ground a
+ * trapezoid: at 55 degrees of pitch the far edge of the view spans nearly three
+ * times the ground the near edge does. Taking three corners and assuming the
+ * fourth gives a flat render that is merely larger, which is not a tilted map at
+ * all.
  *
- * @param {object} corners - {nw, ne, sw}, each {lng, lat}
+ * So the sheet is a projective map from the unit square onto four corners. That
+ * is exactly what a camera does, it degenerates to the affine case when the
+ * fourth corner completes the parallelogram, and it makes the far half of a
+ * tilted sheet compress the way a view of a landscape actually does.
+ *
+ * @param {object} corners - {nw, ne, sw} and optionally {se}, each {lng, lat}.
+ *   Without `se` the sheet is a parallelogram.
  */
-export function createRegion({ nw, ne, sw }) {
-  const originX = lngToTileX(nw.lng, 0);
-  const originY = latToTileY(nw.lat, 0);
+export function createRegion({ nw, ne, sw, se = null }) {
+  const P = (c) => [lngToTileX(c.lng, 0), latToTileY(c.lat, 0)];
 
-  // Edge vectors, in projected units, spanning the full width and height.
-  const ux = lngToTileX(ne.lng, 0) - originX;
-  const uy = latToTileY(ne.lat, 0) - originY;
-  const vx = lngToTileX(sw.lng, 0) - originX;
-  const vy = latToTileY(sw.lat, 0) - originY;
+  // Heckbert's unit-square-to-quadrilateral mapping, corners in the order
+  // (0,0) (1,0) (1,1) (0,1).
+  const [x0, y0] = P(nw);
+  const [x1, y1] = P(ne);
+  const [x3, y3] = P(sw);
+  const [x2, y2] = se ? P(se) : [x1 + x3 - x0, y1 + y3 - y0];
 
-  const determinant = ux * vy - uy * vx;
-  if (Math.abs(determinant) < 1e-18) {
+  const sx = x0 - x1 + x2 - x3;
+  const sy = y0 - y1 + y2 - y3;
+
+  let a, b, c, d, e, f, g, h;
+
+  if (Math.abs(sx) < 1e-15 && Math.abs(sy) < 1e-15) {
+    // A parallelogram: no perspective term, so this is the affine case.
+    a = x1 - x0; b = x2 - x1; c = x0;
+    d = y1 - y0; e = y2 - y1; f = y0;
+    g = 0; h = 0;
+  } else {
+    const dx1 = x1 - x2, dx2 = x3 - x2;
+    const dy1 = y1 - y2, dy2 = y3 - y2;
+    const den = dx1 * dy2 - dx2 * dy1;
+    if (Math.abs(den) < 1e-18) throw new Error('Region corners are degenerate');
+    g = (sx * dy2 - dx2 * sy) / den;
+    h = (dx1 * sy - sx * dy1) / den;
+    a = x1 - x0 + g * x1;
+    b = x3 - x0 + h * x3;
+    c = x0;
+    d = y1 - y0 + g * y1;
+    e = y3 - y0 + h * y3;
+    f = y0;
+  }
+
+  const det = a * (e - f * h) - b * (d - f * g) + c * (d * h - e * g);
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-24) {
     throw new Error('Region corners are collinear; it has no area');
   }
 
-  // Tiles still have to be fetched over an axis-aligned box, so a rotated sheet
-  // covers more of them than it draws.
-  const xs = [originX, originX + ux, originX + vx, originX + ux + vx];
-  const ys = [originY, originY + uy, originY + vy, originY + uy + vy];
+  // Adjugate, for the inverse mapping.
+  const iA = e - f * h, iB = c * h - b, iC = b * f - c * e;
+  const iD = f * g - d, iE = a - c * g, iF = c * d - a * f;
+  const iG = d * h - e * g, iH = b * g - a * h, iI = a * e - b * d;
+
+  const xs = [x0, x1, x2, x3];
+  const ys = [y0, y1, y2, y3];
   const bbox = {
     west: tileXToLng(Math.min(...xs), 0),
     east: tileXToLng(Math.max(...xs), 0),
@@ -138,26 +172,30 @@ export function createRegion({ nw, ne, sw }) {
   };
 
   return {
-    corners: { nw, ne, sw },
+    corners: { nw, ne, sw, se: se || { lng: tileXToLng(x2, 0), lat: tileYToLat(y2, 0) } },
     bbox,
+    /** True when the sheet has perspective, rather than being merely rotated. */
+    perspective: g !== 0 || h !== 0,
 
     /** Where a field sample falls on the Earth. */
     toLngLat(fieldWidth, fieldHeight, x, y) {
-      const s = x / fieldWidth;
-      const t = y / fieldHeight;
+      const u = x / fieldWidth;
+      const v = y / fieldHeight;
+      const w = g * u + h * v + 1;
       return {
-        lng: tileXToLng(originX + ux * s + vx * t, 0),
-        lat: tileYToLat(originY + uy * s + vy * t, 0),
+        lng: tileXToLng((a * u + b * v + c) / w, 0),
+        lat: tileYToLat((d * u + e * v + f) / w, 0),
       };
     },
 
     /** Where a place on the Earth falls in the field. */
     fromLngLat(fieldWidth, fieldHeight, lng, lat) {
-      const px = lngToTileX(lng, 0) - originX;
-      const py = latToTileY(lat, 0) - originY;
+      const X = lngToTileX(lng, 0);
+      const Y = latToTileY(lat, 0);
+      const w = iG * X + iH * Y + iI;
       return {
-        x: ((px * vy - py * vx) / determinant) * fieldWidth,
-        y: ((ux * py - uy * px) / determinant) * fieldHeight,
+        x: ((iA * X + iB * Y + iC) / w) * fieldWidth,
+        y: ((iD * X + iE * Y + iF) / w) * fieldHeight,
       };
     },
   };

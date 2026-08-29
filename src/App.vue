@@ -246,6 +246,13 @@
           <div class='row'><div class='col'>Pen up</div><div class='col c-2'>{{metrics.penUp}}</div></div>
           <div class='row'><div class='col'>Pen lifts</div><div class='col c-2'>{{metrics.lifts}} over {{metrics.paths}} paths</div></div>
           <div class='row' v-if='metrics.saved'><div class='col'>Optimizer</div><div class='col c-2'>{{metrics.saved}}</div></div>
+          <div class='row' v-if='sheetPitch > 0'>
+            <div class='col'>Tilt</div>
+            <div class='col c-2'>
+              {{sheetPitch}}&deg; &mdash; drawn in perspective, far ground compressed
+              <span v-if='sheetClamped'> (limited, to keep the horizon off the sheet)</span>
+            </div>
+          </div>
           <div class='row' v-if='renderInfo'>
             <div class='col'>Source</div>
             <div class='col c-2'>zoom {{renderInfo.zoom}}, {{renderInfo.tiles}} tiles, {{renderInfo.field}} samples, {{renderInfo.minElevation}} to {{renderInfo.maxElevation}} m</div>

@@ -75,6 +75,8 @@ const appState = {
   metrics: null,
   vpypeRecipe: null,
   renderInfo: null,
+  sheetPitch: 0,
+  sheetClamped: false,
   aboutVisible: false,
   error: null,
   settingsOpen: false,
