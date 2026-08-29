@@ -10,52 +10,72 @@
  * sheet: it should be the same size whatever the map's scale.
  */
 
-/** Points of a circle, as a closed polyline. */
-function circle(cx, cy, radius, segments = 64) {
-  const points = [];
-  for (let i = 0; i <= segments; ++i) {
-    const a = (i / segments) * Math.PI * 2;
-    points.push(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
-  }
-  return points;
-}
-
 /**
- * The letter N, drawn as three strokes so a pen can follow it.
- * Height `h`, centred on (cx, cy), and rotated with the rest of the rose.
+ * The rose in its own frame: centred on the origin, radius 1, north towards -y.
+ *
+ * Built once here and then mapped, rather than drawn straight onto the page, so
+ * the same geometry can be laid flat or laid on the ground.
  */
-function letterN(cx, cy, h, rotation) {
+export function roseGeometry({ ring = true, ticks = true, segments = 72 } = {}) {
+  const out = [];
+
+  if (ring) {
+    const circle = [];
+    for (let i = 0; i <= segments; ++i) {
+      const a = (i / segments) * Math.PI * 2;
+      circle.push(Math.cos(a), Math.sin(a));
+    }
+    out.push(circle);
+  }
+
+  // The needle: a narrow kite pointing north, as one closed stroke.
+  out.push([0, -0.78, 0.22, 0, 0, 0.5, -0.22, 0, 0, -0.78]);
+  // A line down the middle, which is what separates the lit half of a rose from
+  // the shaded one without needing any fill.
+  out.push([0, -0.78, 0, 0.5]);
+
+  if (ticks) {
+    for (const angle of [90, 180, 270]) {
+      const a = (angle * Math.PI) / 180;
+      const dx = Math.sin(a);
+      const dy = -Math.cos(a);
+      out.push([dx * 0.82, dy * 0.82, dx * 0.98, dy * 0.98]);
+    }
+  }
+
+  // The letter N, as three strokes, held clear of the ring.
+  const h = 0.42;
   const w = h * 0.62;
-  const cos = Math.cos(rotation);
-  const sin = Math.sin(rotation);
-  const at = (x, y) => [cx + (x * cos - y * sin), cy + (x * sin + y * cos)];
+  const cy = -1.28;
+  out.push([-w / 2, cy + h / 2, -w / 2, cy - h / 2]);
+  out.push([-w / 2, cy - h / 2, w / 2, cy + h / 2]);
+  out.push([w / 2, cy + h / 2, w / 2, cy - h / 2]);
 
-  const [lx0, ly0] = at(-w / 2, h / 2);
-  const [lx1, ly1] = at(-w / 2, -h / 2);
-  const [dx0, dy0] = at(-w / 2, -h / 2);
-  const [dx1, dy1] = at(w / 2, h / 2);
-  const [rx0, ry0] = at(w / 2, h / 2);
-  const [rx1, ry1] = at(w / 2, -h / 2);
+  return out;
+}
 
-  return [
-    [lx0, ly0, lx1, ly1],
-    [dx0, dy0, dx1, dy1],
-    [rx0, ry0, rx1, ry1],
-  ];
+/** Map every point of the rose through a transform. */
+function mapRose(geometry, transform) {
+  return geometry.map((line) => {
+    const out = new Array(line.length);
+    for (let i = 0; i < line.length; i += 2) {
+      const [x, y] = transform(line[i], line[i + 1]);
+      out[i] = x;
+      out[i + 1] = y;
+    }
+    return out;
+  });
 }
 
 /**
- * Build a compass rose.
+ * Build a compass rose flat on the page.
  *
  * @param {object} options
  * @param {number} options.cx - centre, in millimetres on the page
  * @param {number} options.cy
  * @param {number} [options.radius] - millimetres
  * @param {number} [options.northAngle] - which way north lies on the sheet, in
- *   degrees clockwise from up the page. On a flat sheet this is simply the
- *   negative of the map's bearing, but on a tilted one meridians converge, so
- *   north has a different direction at every point and the caller has to say
- *   which one it means.
+ *   degrees clockwise from up the page.
  * @param {boolean} [options.ring] - draw the outer circle
  * @param {boolean} [options.ticks] - draw the minor points
  * @returns {Array} polylines in millimetres
@@ -70,56 +90,35 @@ export function compassRose({
 } = {}) {
   if (!(radius > 0)) throw new Error('Compass radius must be positive');
 
-  const out = [];
-
-  // Page y grows downwards, so a clockwise angle from up-the-page is already
-  // the sign convention the page uses.
+  // Page y grows downwards, so a clockwise angle from up-the-page is already the
+  // sign convention the page uses.
   const rotation = (northAngle * Math.PI) / 180;
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
-  // North is up the page before rotation.
-  const at = (x, y) => [cx + (x * cos - y * sin), cy + (x * sin + y * cos)];
 
-  if (ring) out.push(circle(cx, cy, radius));
-
-  // The needle: a narrow kite pointing north, drawn as one closed stroke so the
-  // pen makes a single pass.
-  const tip = at(0, -radius * 0.78);
-  const tail = at(0, radius * 0.5);
-  const left = at(-radius * 0.22, 0);
-  const right = at(radius * 0.22, 0);
-  out.push([
-    tip[0], tip[1],
-    right[0], right[1],
-    tail[0], tail[1],
-    left[0], left[1],
-    tip[0], tip[1],
+  return mapRose(roseGeometry({ ring, ticks }), (x, y) => [
+    cx + radius * (x * cos - y * sin),
+    cy + radius * (x * sin + y * cos),
   ]);
+}
 
-  // A line down the middle, which is what distinguishes the lit half of a rose
-  // from the shaded one without needing any fill.
-  out.push([tip[0], tip[1], tail[0], tail[1]]);
-
-  if (ticks) {
-    // East, south and west, as short marks inside the ring.
-    for (const angle of [90, 180, 270]) {
-      const a = ((angle + northAngle) * Math.PI) / 180;
-      const dx = Math.sin(a);
-      const dy = -Math.cos(a);
-      out.push([
-        cx + dx * radius * 0.82,
-        cy + dy * radius * 0.82,
-        cx + dx * radius * 0.98,
-        cy + dy * radius * 0.98,
-      ]);
-    }
-  }
-
-  // The N, held clear of the ring.
-  const label = at(0, -radius * 1.28);
-  out.push(...letterN(label[0], label[1], radius * 0.42, rotation));
-
-  return out;
+/**
+ * Build a compass rose lying on the ground.
+ *
+ * A rose is a circle drawn on the map, not a badge stuck to the paper, so it is
+ * only a circle when the map is seen from directly above. Tilt the view and it
+ * becomes an ellipse, exactly as the terrain around it is foreshortened. Drawing
+ * a projected needle inside an unprojected circle would be neither one thing nor
+ * the other.
+ *
+ * This is also why no separate north angle is needed here: north falls out of
+ * the projection, at the point where the rose actually sits.
+ *
+ * @param {Function} toPage - maps the rose's own frame (origin at its centre,
+ *   radius 1, north towards -y) to millimetres on the page
+ */
+export function compassOnGround(toPage, { ring = true, ticks = true } = {}) {
+  return mapRose(roseGeometry({ ring, ticks }), toPage);
 }
 
 /**
@@ -155,6 +154,14 @@ export function compassForPage(page, options = {}) {
   };
   const position = positions[corner];
   if (!position) throw new Error(`Unknown compass corner "${corner}"`);
+
+  // Given a way to lay the rose on the ground, use it: that is the honest
+  // geometry, and it reduces to a plain circle when the view is top-down,
+  // because ground-to-page is then a similarity.
+  if (typeof rest.project === 'function') {
+    const toPage = rest.project(position[0], position[1], radius);
+    if (toPage) return compassOnGround(toPage, rest);
+  }
 
   const northAngle =
     typeof rest.northAngle === 'function'

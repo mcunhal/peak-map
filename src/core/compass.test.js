@@ -153,3 +153,75 @@ describe('compassForPage', () => {
     expect(() => compassForPage(page, { corner: 'middle' })).toThrow(/corner/i);
   });
 });
+
+describe('a rose lying on the ground', () => {
+  const page = createPage({ paper: 'A4', orientation: 'landscape', margin: 12 });
+
+  /** Fit an axis-aligned box to the ring, which is the first stroke. */
+  const ringBounds = (lines) => bounds([lines[0]]);
+
+  it('stays a circle when the transform is a similarity, however rotated', () => {
+    // Top-down, rotated: ground to page is a rotation and a uniform scale, so a
+    // circle on the ground is still a circle on the paper.
+    const a = (37 * Math.PI) / 180;
+    const r = 10;
+    const toPage = (x, y) => [
+      100 + r * (x * Math.cos(a) - y * Math.sin(a)),
+      80 + r * (x * Math.sin(a) + y * Math.cos(a)),
+    ];
+    const b = ringBounds(compassForPage(page, { radius: r, project: () => toPage }));
+    const width = b.maxX - b.minX;
+    const height = b.maxY - b.minY;
+    expect(width / height).toBeCloseTo(1, 6);
+  });
+
+  it('becomes an ellipse under perspective', () => {
+    // A transform with a perspective term: the far side of the rose is squeezed.
+    const r = 10;
+    const toPage = (x, y) => {
+      const w = 1 - 0.45 * y;
+      return [100 + (r * x) / w, 80 + (r * y) / w];
+    };
+    const lines = compassForPage(page, { radius: r, project: () => toPage });
+    const b = ringBounds(lines);
+    const width = b.maxX - b.minX;
+    const height = b.maxY - b.minY;
+    // Squeezed along one axis, so no longer round.
+    expect(Math.abs(width / height - 1)).toBeGreaterThan(0.05);
+  });
+
+  it('foreshortens the far half more than the near half', () => {
+    const r = 10;
+    const toPage = (x, y) => {
+      const w = 1 - 0.45 * y;
+      return [100 + (r * x) / w, 80 + (r * y) / w];
+    };
+    const lines = compassForPage(page, { radius: r, project: () => toPage });
+    const b = ringBounds(lines);
+    const centreY = toPage(0, 0)[1];
+    // Up the page is the far ground, so that half of the ring is the shallower
+    // one. A camera compresses what is further away.
+    expect(centreY - b.minY).toBeLessThan(b.maxY - centreY);
+  });
+
+  it('keeps the needle straight, as a projection of a straight line must', () => {
+    const r = 10;
+    const toPage = (x, y) => {
+      const w = 1 - 0.45 * y;
+      return [100 + (r * x) / w, 80 + (r * y) / w];
+    };
+    // The third stroke is the line down the middle of the needle.
+    const spine = compassForPage(page, { radius: r, project: () => toPage })[2];
+    expect(spine).toHaveLength(4);
+  });
+
+  it('falls back to a flat rose when no projection is offered', () => {
+    const flat = compassForPage(page, { radius: 10, northAngle: 0 });
+    const b = ringBounds(flat);
+    expect((b.maxX - b.minX) / (b.maxY - b.minY)).toBeCloseTo(1, 6);
+  });
+
+  it('falls back when the projection cannot be built', () => {
+    expect(() => compassForPage(page, { radius: 10, project: () => null })).not.toThrow();
+  });
+});

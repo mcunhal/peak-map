@@ -11,7 +11,7 @@
  */
 import { buildHeightField, loadTilePixels } from '../dem/buildHeightField';
 import { getDemSource, unavailableReason } from '../dem/sources';
-import { createRegion, regionFromBbox } from '../dem/tileMath';
+import { createRegion, regionFromBbox, lngToTileX, latToTileY, tileXToLng, tileYToLat } from '../dem/tileMath';
 import { computeRange } from '../core/heightField';
 import { renderRidgelineScene } from '../core/scene';
 import { renderTerrain, getAlgorithm } from '../core/algorithms/index';
@@ -186,27 +186,59 @@ async function render(request, progress, stillCurrent) {
   // Its own layer, so it can be plotted in a different pen or left off the
   // sheet entirely without touching the map.
   if (compass && compass.show) {
-    // On a tilted sheet meridians converge, so north has a different direction
-    // at every point. Ask the region which way it lies where the rose sits,
-    // rather than assuming the map's bearing holds everywhere.
-    const northAngleAt = (xMm, yMm) => {
+    // Page millimetres to the projected sphere and back, so the rose can be
+    // drawn where it lies on the ground rather than stuck flat to the paper.
+    const pageToGround = (xMm, yMm) => {
       const fx = (xMm - mapper.offsetX) / mapper.scale;
       const fy = (yMm - mapper.offsetY) / mapper.scale;
-      const here = region.toLngLat(fieldWidth, fieldHeight, fx, fy);
-      const step = 0.01;
-      const lat = Math.min(84, here.lat + step);
-      const north = region.fromLngLat(fieldWidth, fieldHeight, here.lng, lat);
-      const dx = north.x - fx;
-      const dy = north.y - fy;
-      if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return 0;
-      // Clockwise from up the page.
-      return (Math.atan2(dx, -dy) * 180) / Math.PI;
+      const p = region.toLngLat(fieldWidth, fieldHeight, fx, fy);
+      return [lngToTileX(p.lng, 0), latToTileY(p.lat, 0)];
+    };
+    const groundToPage = (gx, gy) => {
+      const f = region.fromLngLat(fieldWidth, fieldHeight, tileXToLng(gx, 0), tileYToLat(gy, 0));
+      return [mapper.offsetX + f.x * mapper.scale, mapper.offsetY + f.y * mapper.scale];
+    };
+
+    /**
+     * A transform from the rose's own frame onto the page.
+     *
+     * The ground radius is solved for, rather than assumed, by measuring how far
+     * a small step on the ground moves on the page at the rose's position. Under
+     * perspective that scale differs across the sheet, so it has to be taken
+     * where the rose actually is.
+     */
+    const project = (cxMm, cyMm, radiusMm) => {
+      const [gx, gy] = pageToGround(cxMm, cyMm);
+      if (!Number.isFinite(gx) || !Number.isFinite(gy)) return null;
+
+      const probe = 1e-6;
+      const [px, py] = groundToPage(gx + probe, gy);
+      const mmPerGround = Math.hypot(px - cxMm, py - cyMm) / probe;
+      if (!Number.isFinite(mmPerGround) || mmPerGround <= 0) return null;
+
+      let groundRadius = radiusMm / mmPerGround;
+
+      // A rose far up a tilted sheet stretches a long way. Shrink it until it
+      // stays inside the margins rather than letting it run off the paper.
+      const { drawable } = page;
+      const fits = (r) => {
+        for (const [lx, ly] of [[-1.05, -1.5], [1.05, -1.5], [-1.05, 1.05], [1.05, 1.05]]) {
+          const [x, y] = groundToPage(gx + lx * r, gy + ly * r);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+          if (x < drawable.x || x > drawable.x + drawable.width) return false;
+          if (y < drawable.y || y > drawable.y + drawable.height) return false;
+        }
+        return true;
+      };
+      for (let i = 0; i < 8 && !fits(groundRadius); ++i) groundRadius *= 0.8;
+
+      return (lx, ly) => groundToPage(gx + lx * groundRadius, gy + ly * groundRadius);
     };
 
     const polylines = compassForPage(page, {
       radius: compass.radius,
-      northAngle: northAngleAt,
       corner: compass.corner,
+      project,
     });
     if (polylines.length) {
       layers = layers.concat([
