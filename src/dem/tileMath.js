@@ -209,3 +209,41 @@ export function regionFromBbox(bbox) {
     sw: { lng: bbox.west, lat: bbox.south },
   });
 }
+
+/**
+ * How much the sheet is foreshortened, row by row.
+ *
+ * A tilted sheet projects the ground in perspective, but elevation was lifted by
+ * a fixed amount everywhere, which makes the drawing a hybrid: a perspective
+ * ground plane carrying orthographic heights. Distant hills then stand as tall as
+ * near ones, and the way ridges overlap reads as wrong, because it is.
+ *
+ * In a real view a hill of a given height covers more of the image the nearer it
+ * is, in exactly the proportion the ground does. So displacement is scaled by the
+ * local image scale of the row, normalised so the middle of the sheet keeps the
+ * height that was asked for.
+ *
+ * Returns null for a sheet with no perspective, where every row scales alike.
+ */
+export function regionRowScales(region, fieldWidth, fieldHeight) {
+  if (!region || !region.perspective) return null;
+
+  const midX = fieldWidth / 2;
+  const scales = new Float64Array(fieldHeight);
+
+  for (let y = 0; y < fieldHeight; ++y) {
+    // Ground covered by one field unit across, at this row.
+    const a = region.toLngLat(fieldWidth, fieldHeight, midX, y);
+    const b = region.toLngLat(fieldWidth, fieldHeight, midX + 1, y);
+    const ground = Math.hypot(
+      lngToTileX(b.lng, 0) - lngToTileX(a.lng, 0),
+      latToTileY(b.lat, 0) - latToTileY(a.lat, 0)
+    );
+    scales[y] = ground > 0 ? 1 / ground : 0;
+  }
+
+  const middle = scales[Math.floor(fieldHeight / 2)];
+  if (!(middle > 0)) return null;
+  for (let y = 0; y < fieldHeight; ++y) scales[y] /= middle;
+  return scales;
+}

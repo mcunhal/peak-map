@@ -11,16 +11,31 @@
  */
 import { computeRange, isNoData } from '../heightField';
 import { createOcclusionBuffer } from '../occlusion';
+import { regionRowScales } from '../../dem/tileMath';
 
 /**
- * Choose row positions so that one row lands exactly on the highest point. Without
- * this the summit can fall between two scanlines and simply not be drawn.
+ * Row positions, spanning the whole field.
+ *
+ * Rows land on both edges and are evenly spaced between them. Upstream instead
+ * aligned one row to the highest point, so that a summit always fell on a drawn
+ * line; the cost was that the last row stopped up to a full spacing short of the
+ * bottom, which on a sheet with no margins reads as a margin nobody asked for.
+ * Covering the sheet wins: a summit is now at worst half a spacing from a line,
+ * which is a smaller error than a blank band.
+ *
+ * @returns {{rows: Int32Array, spacing: number}} rows nearest-first, which is
+ *   the order the occlusion buffer needs.
  */
-export function createRowIterator(rowCount, fieldHeight, rowWithHighestPoint) {
-  const step = Math.max(1, Math.round(fieldHeight / Math.max(1, rowCount)));
-  const start = rowWithHighestPoint - Math.floor(rowWithHighestPoint / step) * step;
-  const stop = start + step * Math.floor((fieldHeight - 1 - start) / step);
-  return { start, stop, step };
+export function createRowIterator(rowCount, fieldHeight) {
+  const count = Math.max(2, Math.round(rowCount));
+  const last = fieldHeight - 1;
+  const spacing = last / (count - 1);
+
+  const rows = new Int32Array(count);
+  // Nearest first: the bottom of the field is what occludes everything else.
+  for (let i = 0; i < count; ++i) rows[i] = Math.round(last - i * spacing);
+
+  return { rows, spacing };
 }
 
 /**
@@ -104,12 +119,18 @@ export function ridgeline(field, options = {}) {
   // than dividing by zero.
   const displacementPerMetre = heightRange > 0 ? heightScale / heightRange : 0;
 
-  const iterator = createRowIterator(rowCount, height, range.rowWithHighestPoint);
+  const { rows } = createRowIterator(rowCount, height);
+  const rowScale = regionRowScales(field.region, width, height);
   const buffer = occlude ? createOcclusionBuffer(width, height) : null;
   const out = [];
 
-  // Bottom to top: nearer ridges are drawn before the ones they hide.
-  for (let y = iterator.stop; y >= iterator.start; y -= iterator.step) {
+  // Nearest ridges first, so they can occlude the ones behind them.
+  for (const y of rows) drawRow(y);
+
+  return out;
+
+  function drawRow(y) {
+    const lift = displacementPerMetre * (rowScale ? rowScale[y] : 1);
     let run = [];
 
     for (let x = 0; x < width; ++x) {
@@ -121,13 +142,11 @@ export function ridgeline(field, options = {}) {
         continue;
       }
 
-      run.push(x, y - (elevation - minHeight) * displacementPerMetre);
+      run.push(x, y - (elevation - minHeight) * lift);
     }
 
     if (run.length >= 4) emit(run);
   }
-
-  return out;
 
   function emit(points) {
     const smoothed = smoothPolyline(points, smoothSteps);

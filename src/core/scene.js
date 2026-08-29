@@ -20,7 +20,7 @@
 import { computeRange, isNoData } from './heightField';
 import { createOcclusionBuffer } from './occlusion';
 import { createRowIterator, smoothPolyline } from './algorithms/ridgeline';
-import { regionFromBbox } from '../dem/tileMath';
+import { regionFromBbox, regionRowScales } from '../dem/tileMath';
 
 export const TRACK_MODES = ['hidden', 'visible', 'dotted'];
 
@@ -176,10 +176,11 @@ export function renderRidgelineScene(field, options = {}) {
   const { minHeight, heightRange } = range;
   const displacementPerMetre = heightRange > 0 ? heightScale / heightRange : 0;
 
-  const iterator = createRowIterator(rowCount, height, range.rowWithHighestPoint);
+  const { rows, spacing } = createRowIterator(rowCount, height);
+  const rowScale = regionRowScales(field.region, width, height);
   const buffer = occlude ? createOcclusionBuffer(width, height) : null;
 
-  const rowCountDrawn = Math.floor((iterator.stop - iterator.start) / iterator.step) + 1;
+  const rowCountDrawn = rows.length;
 
   const projected = tracks.map((track) =>
     projectTrack(track, field, { minHeight, displacementPerMetre })
@@ -190,7 +191,9 @@ export function renderRidgelineScene(field, options = {}) {
   const buckets = Array.from({ length: rowCountDrawn + 1 }, () => []);
   projected.forEach((points) => {
     for (const point of points) {
-      const index = Math.ceil((iterator.stop - point.row) / iterator.step);
+      // Rows run nearest-first from the bottom edge, so a point belongs to the
+      // bucket tested once every nearer row has been drawn.
+      const index = Math.ceil((height - 1 - point.row) / spacing);
       buckets[Math.min(rowCountDrawn, Math.max(0, index))].push(point);
     }
   });
@@ -199,7 +202,7 @@ export function renderRidgelineScene(field, options = {}) {
 
   for (let i = 0; i < rowCountDrawn; ++i) {
     testTrackPoints(buckets[i]);
-    drawTerrainRow(iterator.stop - i * iterator.step);
+    drawTerrainRow(rows[i]);
   }
   testTrackPoints(buckets[rowCountDrawn]);
 
@@ -225,6 +228,9 @@ export function renderRidgelineScene(field, options = {}) {
   }
 
   function drawTerrainRow(y) {
+    // Heights obey the same perspective as the ground, so a distant hill does
+    // not stand as tall as a near one.
+    const lift = displacementPerMetre * (rowScale ? rowScale[y] : 1);
     let run = [];
     for (let x = 0; x < width; ++x) {
       const elevation = field.get(x, y);
@@ -233,7 +239,7 @@ export function renderRidgelineScene(field, options = {}) {
         run = [];
         continue;
       }
-      run.push(x, y - (elevation - minHeight) * displacementPerMetre);
+      run.push(x, y - (elevation - minHeight) * lift);
     }
     if (run.length >= 4) emitTerrain(run);
   }

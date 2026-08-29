@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ridgeline } from './ridgeline';
+import { ridgeline, createRowIterator } from './ridgeline';
 import { planeField, coneField, gaussianHill } from '../testFields';
 import { createHeightField, NODATA } from '../heightField';
 
@@ -41,14 +41,14 @@ describe('ridgeline', () => {
     // (higher on the page) than its own row's baseline.
     const field = coneField(31, 31, 100);
     const lines = ridgeline(field, opts({ rowCount: 15, heightScale: 20 }));
-    const centreRow = lines.find((line) => {
-      for (let i = 0; i < line.length; i += 2) if (line[i] === 15) return true;
-      return false;
-    });
-    expect(centreRow).toBeDefined();
-    const ys = [];
-    for (let i = 1; i < centreRow.length; i += 2) ys.push(centreRow[i]);
-    expect(Math.min(...ys)).toBeLessThan(Math.max(...ys));
+    // Rows now reach both edges, and the edge rows lie on flat ground outside the
+    // cone, so pick the row with the most relief rather than the first one found.
+    const spread = (line) => {
+      const ys = [];
+      for (let i = 1; i < line.length; i += 2) ys.push(line[i]);
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    expect(Math.max(...lines.map(spread))).toBeGreaterThan(5);
   });
 
   it('scales displacement with heightScale', () => {
@@ -111,10 +111,12 @@ describe('ridgeline', () => {
         0
       );
 
-    // 10 rows over 60 samples is a 6-sample spacing; this hill's steepest
-    // displacement gradient at scale 20 is just under that.
-    expect(count(20, true)).toBe(count(20, false));
-    expect(count(150, true)).toBeLessThan(count(20, true));
+    // Rows span the field, so the topmost sits on the edge and any relief lifts
+    // it off the sheet, where it is clipped. That is page-edge clipping, not
+    // terrain hiding terrain, so allow for one row and compare the rest.
+    const rowWidth = 60;
+    expect(count(20, false) - count(20, true)).toBeLessThanOrEqual(rowWidth);
+    expect(count(150, true)).toBeLessThan(count(20, true) * 0.8);
   });
 
   it('keeps every drawn point on the page when occluding', () => {
@@ -144,5 +146,42 @@ describe('ridgeline', () => {
     const data = new Float32Array(16).fill(NODATA);
     const field = createHeightField({ width: 4, height: 4, data });
     expect(ridgeline(field, opts())).toEqual([]);
+  });
+});
+
+describe('rows span the sheet', () => {
+  it('places a row on each edge of the field', () => {
+    const { rows } = createRowIterator(40, 616);
+    expect(Math.max(...rows)).toBe(615);
+    expect(Math.min(...rows)).toBe(0);
+  });
+
+  it('spaces them evenly', () => {
+    const { rows, spacing } = createRowIterator(30, 500);
+    for (let i = 1; i < rows.length; ++i) {
+      expect(Math.abs(rows[i - 1] - rows[i] - spacing)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('runs nearest first, which is what occlusion needs', () => {
+    const { rows } = createRowIterator(10, 100);
+    for (let i = 1; i < rows.length; ++i) expect(rows[i]).toBeLessThan(rows[i - 1]);
+  });
+
+  it('draws terrain right down to the bottom edge', () => {
+    // The gap this replaced was a full row spacing, which on a sheet with no
+    // margins looked like a margin.
+    const field = gaussianHill(200, 140, 400);
+    const lines = ridgeline(field, opts({ rowCount: 20, heightScale: 10 }));
+    let lowest = -Infinity;
+    for (const line of lines) {
+      for (let i = 1; i < line.length; i += 2) if (line[i] > lowest) lowest = line[i];
+    }
+    // Within a sample of the last row, allowing for the relief lift.
+    expect(lowest).toBeGreaterThan(field.height - 1 - 1.5);
+  });
+
+  it('honours the requested number of rows', () => {
+    expect(createRowIterator(25, 400).rows).toHaveLength(25);
   });
 });

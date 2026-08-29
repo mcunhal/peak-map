@@ -298,3 +298,41 @@ describe('createRegion with perspective', () => {
     }
   });
 });
+
+describe('regionRowScales', () => {
+  it('has nothing to say about a sheet with no perspective', async () => {
+    const { regionRowScales, regionFromBbox } = await import('./tileMath');
+    const flat = regionFromBbox({ west: -8, south: 40, east: -7, north: 41 });
+    expect(regionRowScales(flat, 100, 100)).toBeNull();
+  });
+
+  it('scales the near half up and the far half down', async () => {
+    const { regionRowScales, createRegion } = await import('./tileMath');
+    // The trapezoid measured from the app at 55 degrees of pitch.
+    const region = createRegion({
+      nw: { lng: -9.0431, lat: 41.6303 },
+      ne: { lng: -6.1569, lat: 41.6303 },
+      sw: { lng: -8.1123, lat: 39.8623 },
+      se: { lng: -7.0877, lat: 39.8623 },
+    });
+    const scales = regionRowScales(region, 200, 140);
+    expect(scales).not.toBeNull();
+    // Row 0 is the far edge, row 139 the near one.
+    expect(scales[0]).toBeLessThan(1);
+    expect(scales[139]).toBeGreaterThan(1);
+    // Monotonic: nothing should jump about between rows.
+    for (let y = 1; y < 140; ++y) expect(scales[y]).toBeGreaterThan(scales[y - 1]);
+  });
+
+  it('is normalised so the middle of the sheet keeps its height', async () => {
+    const { regionRowScales, createRegion } = await import('./tileMath');
+    const region = createRegion({
+      nw: { lng: -9.0431, lat: 41.6303 },
+      ne: { lng: -6.1569, lat: 41.6303 },
+      sw: { lng: -8.1123, lat: 39.8623 },
+      se: { lng: -7.0877, lat: 39.8623 },
+    });
+    const scales = regionRowScales(region, 200, 140);
+    expect(scales[70]).toBeCloseTo(1, 9);
+  });
+});
