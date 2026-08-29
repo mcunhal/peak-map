@@ -287,7 +287,21 @@ informative way.
   That rules out fetching them from the deployed app, and not only because of the
   403: personal credentials in a public web app would be handed to every visitor.
   The two designs that work are loading a GeoTIFF the user has already ordered,
-  and mirroring ordered tiles to private storage the app owns. Both need only a
-  GeoTIFF reader and the projection in `ptLidarGrid.js`.
+  and mirroring ordered tiles to private storage the app owns.
+
+  **Both halves are built.** `rasterMosaic.js` samples a set of projected rasters
+  as one surface, tolerating gaps, since a sheet routinely spans tiles that were
+  never flown. `ptLidarRaster.js` reads a GeoTIFF and samples it onto a sheet
+  through the same region the tiled path uses, so rotation and tilt carry over
+  untouched, and reports what fraction of the sheet the tiles actually cover.
+  What remains is only the plumbing: a file input, and a source entry.
+
+  The authentication, for whoever writes the fetcher, is Keycloak at
+  `auth.cdd.dgterritorio.gov.pt/realms/dgterritorio`, an ordinary authorization
+  code flow whose session cookie then authorises the object store directly. There
+  are no tokens and no presigned URLs. The QGIS plugin `qgispt/dgtcd_downer` does
+  exactly this and is worth reading; note it waits five seconds between downloads
+  and revalidates every ten, which is a courtesy worth keeping. Credentials belong
+  in a local script reading `.env`, never in anything that ships to a browser.
 - 2-opt path refinement. The sort interface is open for it.
 - National high-resolution DEM services.

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "fast-xml-parser": "^5.11.1",
+    "geotiff": "^3.0.5",
     "maplibre-gl": "^4.7.1",
     "point-in-polygon": "^1.1.0",
     "tinycolor2": "^1.6.0",
