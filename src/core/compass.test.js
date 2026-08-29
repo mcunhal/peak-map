@@ -43,28 +43,28 @@ describe('compassRose', () => {
     }
   });
 
-  it('points north up the page when the map is north-up', () => {
-    const lines = compassRose({ cx: 0, cy: 0, radius: 10, bearing: 0 });
+  it('points north up the page when north is up the page', () => {
+    const lines = compassRose({ cx: 0, cy: 0, radius: 10, northAngle: 0 });
     const [tx, ty] = needleTip(lines, 0, 0);
     expect(Math.abs(tx)).toBeLessThan(0.001);
     // Up the page is a smaller y.
     expect(ty).toBeLessThan(-5);
   });
 
-  it('turns the opposite way to the map', () => {
-    // Turning the map 90 degrees clockwise puts north on the left of the sheet.
-    const lines = compassRose({ cx: 0, cy: 0, radius: 10, bearing: 90 });
+  it('points where it is told', () => {
+    // North lying 90 degrees clockwise from up the page means north is to the right.
+    const lines = compassRose({ cx: 0, cy: 0, radius: 10, northAngle: 90 });
     const [tx, ty] = needleTip(lines, 0, 0);
-    expect(tx).toBeLessThan(-5);
+    expect(tx).toBeGreaterThan(5);
     expect(Math.abs(ty)).toBeLessThan(0.001);
   });
 
-  it('follows the bearing all the way round', () => {
-    for (const bearing of [0, 45, 90, 180, 270, 315]) {
-      const lines = compassRose({ cx: 0, cy: 0, radius: 10, bearing });
+  it('follows the angle all the way round', () => {
+    for (const northAngle of [0, 45, 90, 180, 270, 315]) {
+      const lines = compassRose({ cx: 0, cy: 0, radius: 10, northAngle });
       const [tx, ty] = needleTip(lines, 0, 0);
       const angle = (Math.atan2(tx, -ty) * 180) / Math.PI;
-      const expected = ((-bearing % 360) + 360) % 360;
+      const expected = ((northAngle % 360) + 360) % 360;
       const got = ((angle % 360) + 360) % 360;
       expect(Math.min(Math.abs(got - expected), 360 - Math.abs(got - expected))).toBeLessThan(0.001);
     }
@@ -93,8 +93,8 @@ describe('compassRose', () => {
   });
 
   it('is deterministic', () => {
-    expect(compassRose({ cx: 1, cy: 2, radius: 8, bearing: 33 })).toEqual(
-      compassRose({ cx: 1, cy: 2, radius: 8, bearing: 33 })
+    expect(compassRose({ cx: 1, cy: 2, radius: 8, northAngle: 33 })).toEqual(
+      compassRose({ cx: 1, cy: 2, radius: 8, northAngle: 33 })
     );
   });
 
@@ -133,6 +133,20 @@ describe('compassForPage', () => {
     const b = bounds(compassForPage(small, { radius: 14 }));
     expect(b.minX).toBeGreaterThanOrEqual(small.drawable.x - 0.001);
     expect(b.maxY).toBeLessThanOrEqual(small.drawable.y + small.drawable.height + 0.001);
+  });
+
+  it('asks where north is, when north depends on where the rose sits', () => {
+    let asked = null;
+    compassForPage(page, {
+      radius: 10,
+      northAngle: (cx, cy) => {
+        asked = [cx, cy];
+        return 20;
+      },
+    });
+    // It has to be given the rose's own position, not the page's centre.
+    expect(asked[0]).toBeGreaterThan(page.drawable.x + page.drawable.width / 2);
+    expect(asked[1]).toBeGreaterThan(page.drawable.y + page.drawable.height / 2);
   });
 
   it('rejects a corner it does not know', () => {

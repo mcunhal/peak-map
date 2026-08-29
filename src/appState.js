@@ -22,18 +22,22 @@ const appState = {
   algorithm: DEFAULT_ALGORITHM,
   algorithms: listAlgorithms(),
   lineDensity: 60,
-  heightScale: 60,
-  smoothSteps: 2,
+  // Sizes are in millimetres on the paper, so changing detail does not change
+  // how the map looks.
+  heightScale: 26,
+  smoothSteps: 0.9,
   oceanLevel: 0,
   occlude: true,
-  separation: 5,
+  separation: 2.2,
   contourInterval: '',
   contourCount: 25,
   sunAzimuth: 315,
   tanakaClasses: 3,
   hatchAngle: 45,
-  hatchSpacing: 2,
+  hatchSpacing: 0.9,
   hatchLevels: 4,
+  dotPitch: 0.9,
+  dotLength: 0.3,
 
   // --- page --------------------------------------------------------------
   paper: 'A3',

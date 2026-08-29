@@ -57,7 +57,11 @@ function init() {
     appState.angle = map.getBearing();
   });
 
-  map.touchZoomRotate.disableRotation();
+  // Upstream disabled this. Rotation now changes what is drawn, so a phone needs
+  // a way to reach it: two fingers to turn, two fingers dragged up or down to
+  // tilt.
+  map.touchZoomRotate.enableRotation();
+  if (map.touchPitch && map.touchPitch.enable) map.touchPitch.enable();
 }
 
 function listenToEvents(newIsListening) {
@@ -202,6 +206,8 @@ function buildRequest(corners) {
     },
     tracks: appState.tracks.map((t) => ({ name: t.name, points: t.points })),
     trackMode: appState.trackMode,
+    dotPitch: Number(appState.dotPitch),
+    dotLength: Number(appState.dotLength),
     page: pageSettings(),
     pens: {
       terrain: { color: appState.terrainPenColor, width: Number(appState.terrainPenWidth) },

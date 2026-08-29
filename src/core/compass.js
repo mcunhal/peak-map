@@ -51,9 +51,11 @@ function letterN(cx, cy, h, rotation) {
  * @param {number} options.cx - centre, in millimetres on the page
  * @param {number} options.cy
  * @param {number} [options.radius] - millimetres
- * @param {number} [options.bearing] - the map's bearing in degrees. North on the
- *   rose points where north is on the sheet, which is opposite the rotation the
- *   map was turned by.
+ * @param {number} [options.northAngle] - which way north lies on the sheet, in
+ *   degrees clockwise from up the page. On a flat sheet this is simply the
+ *   negative of the map's bearing, but on a tilted one meridians converge, so
+ *   north has a different direction at every point and the caller has to say
+ *   which one it means.
  * @param {boolean} [options.ring] - draw the outer circle
  * @param {boolean} [options.ticks] - draw the minor points
  * @returns {Array} polylines in millimetres
@@ -62,7 +64,7 @@ export function compassRose({
   cx,
   cy,
   radius = 12,
-  bearing = 0,
+  northAngle = 0,
   ring = true,
   ticks = true,
 } = {}) {
@@ -70,10 +72,9 @@ export function compassRose({
 
   const out = [];
 
-  // Turning the map clockwise by `bearing` turns north on the paper the other
-  // way, so the rose is rotated by the negative of it. Screen y grows downwards,
-  // which is already the sign convention the page uses.
-  const rotation = (-bearing * Math.PI) / 180;
+  // Page y grows downwards, so a clockwise angle from up-the-page is already
+  // the sign convention the page uses.
+  const rotation = (northAngle * Math.PI) / 180;
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
   // North is up the page before rotation.
@@ -102,7 +103,7 @@ export function compassRose({
   if (ticks) {
     // East, south and west, as short marks inside the ring.
     for (const angle of [90, 180, 270]) {
-      const a = ((angle - bearing) * Math.PI) / 180;
+      const a = ((angle + northAngle) * Math.PI) / 180;
       const dx = Math.sin(a);
       const dy = -Math.cos(a);
       out.push([
@@ -127,7 +128,9 @@ export function compassRose({
  * @param {object} page - from createPage
  * @param {object} [options] - passed on to compassRose, minus the position
  * @param {number} [options.radius]
- * @param {number} [options.bearing]
+ * @param {number|Function} [options.northAngle] - degrees, or a function of the
+ *   rose's own page position, since on a tilted sheet north depends on where you
+ *   are standing
  * @param {number} [options.inset] - millimetres in from the drawable corner
  * @param {'bottom-right'|'bottom-left'|'top-right'|'top-left'} [options.corner]
  */
@@ -153,5 +156,10 @@ export function compassForPage(page, options = {}) {
   const position = positions[corner];
   if (!position) throw new Error(`Unknown compass corner "${corner}"`);
 
-  return compassRose({ cx: position[0], cy: position[1], radius, ...rest });
+  const northAngle =
+    typeof rest.northAngle === 'function'
+      ? rest.northAngle(position[0], position[1])
+      : (rest.northAngle ?? 0);
+
+  return compassRose({ ...rest, cx: position[0], cy: position[1], radius, northAngle });
 }

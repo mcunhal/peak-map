@@ -21,6 +21,17 @@ import { writeSvg } from '../core/svgWriter';
 import { optimizeLayers, measurePlot, compareMetrics, vpypeRecipe } from '../core/optimize';
 import { compassForPage } from '../core/compass';
 
+/** Options the app supplies in millimetres, with the default each falls back to. */
+const MILLIMETRE_OPTIONS = {
+  heightScale: 26,
+  separation: 2.2,
+  spacing: 0.9,
+  smoothSteps: 0.9,
+  minStroke: 0.7,
+  maxStroke: 3,
+  gap: 1.1,
+};
+
 let currentJob = 0;
 
 self.onmessage = async (event) => {
@@ -92,14 +103,42 @@ async function render(request, progress, stillCurrent) {
 
   const mapper = createPageMapper(page, field);
   const definition = getAlgorithm(algorithm);
-  const options = { ...definition.defaults, ...algorithmOptions };
+
+  // Every setting with a size arrives in millimetres and is converted here.
+  //
+  // The algorithms work in field samples, which is right for them, but a sample
+  // is not a fixed size: raising the detail makes samples smaller, so a relief
+  // of "60 samples" silently shrank from 74mm of paper to 14mm as detail went
+  // from 300 to 1600. Detail should decide how much the data resolves, and
+  // nothing else. Converting at this boundary is what makes that true.
+  const samplesPerMm = 1 / mapper.scale;
+  const mm = (value, fallback) =>
+    (Number.isFinite(value) ? value : fallback) * samplesPerMm;
+
+  const sized = {};
+  for (const [key, fallback] of Object.entries(MILLIMETRE_OPTIONS)) {
+    if (algorithmOptions[key] !== undefined) sized[key] = mm(algorithmOptions[key], fallback);
+  }
+
+  const options = { ...definition.defaults, ...algorithmOptions, ...sized };
+  // Integration step follows the separation, so it never needs its own setting.
+  if (sized.separation) options.stepSize = Math.max(0.25, sized.separation / 8);
+  if (sized.smoothSteps !== undefined) {
+    options.smoothSteps = Math.max(0, Math.round(sized.smoothSteps));
+  }
 
   let layers;
 
   if (!definition.planar && tracks.length > 0) {
     // The ridgeline family needs terrain and tracks rendered together, because a
     // track is only hidden by terrain nearer than it.
-    const scene = renderRidgelineScene(field, { ...options, tracks, trackMode });
+    const scene = renderRidgelineScene(field, {
+      ...options,
+      tracks,
+      trackMode,
+      dotPitch: mm(request.dotPitch, 0.9),
+      dotLength: mm(request.dotLength, 0.3),
+    });
     layers = buildLayers(scene, mapper, {
       terrainPen: pens.terrain || { color: '#161616', width: 0.3 },
       trackPens: pens.tracks || [],
@@ -147,9 +186,26 @@ async function render(request, progress, stillCurrent) {
   // Its own layer, so it can be plotted in a different pen or left off the
   // sheet entirely without touching the map.
   if (compass && compass.show) {
+    // On a tilted sheet meridians converge, so north has a different direction
+    // at every point. Ask the region which way it lies where the rose sits,
+    // rather than assuming the map's bearing holds everywhere.
+    const northAngleAt = (xMm, yMm) => {
+      const fx = (xMm - mapper.offsetX) / mapper.scale;
+      const fy = (yMm - mapper.offsetY) / mapper.scale;
+      const here = region.toLngLat(fieldWidth, fieldHeight, fx, fy);
+      const step = 0.01;
+      const lat = Math.min(84, here.lat + step);
+      const north = region.fromLngLat(fieldWidth, fieldHeight, here.lng, lat);
+      const dx = north.x - fx;
+      const dy = north.y - fy;
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return 0;
+      // Clockwise from up the page.
+      return (Math.atan2(dx, -dy) * 180) / Math.PI;
+    };
+
     const polylines = compassForPage(page, {
       radius: compass.radius,
-      bearing: compass.bearing,
+      northAngle: northAngleAt,
       corner: compass.corner,
     });
     if (polylines.length) {

@@ -87,3 +87,50 @@ describe('height field to plot-ready SVG', () => {
     expect(svg).not.toContain('Infinity');
   });
 });
+
+describe('detail changes resolution, not appearance', () => {
+  // The sizes the app sends are millimetres on the paper, converted to field
+  // samples against the page mapper. This is the guarantee that conversion buys:
+  // raising the detail resolves more terrain without redrawing the map larger or
+  // smaller. Before it, relief fell from 74mm to 14mm as detail went 300 to 1600.
+  const page = createPage({ paper: 'A3', orientation: 'landscape', margin: 15 });
+  const aspect = page.drawable.width / page.drawable.height;
+
+  const reliefMm = (detail) => {
+    const width = detail;
+    const height = Math.round(detail / aspect);
+    const field = gaussianHill(width, height, 1200);
+    const mapper = createPageMapper(page, field);
+
+    // 26mm of relief, expressed the way the worker expresses it.
+    const heightScale = 26 / mapper.scale;
+    const lines = ridgeline(field, {
+      rowCount: 60,
+      heightScale,
+      smoothSteps: 0,
+      occlude: false,
+    });
+
+    let peak = 0;
+    for (const line of lines) {
+      const ys = [];
+      for (let i = 1; i < line.length; i += 2) ys.push(line[i]);
+      peak = Math.max(peak, Math.max(...ys) - Math.min(...ys));
+    }
+    return peak * mapper.scale;
+  };
+
+  it('keeps the relief the same physical height at any detail', () => {
+    const coarse = reliefMm(300);
+    const middling = reliefMm(900);
+    const fine = reliefMm(1600);
+
+    for (const value of [coarse, middling, fine]) {
+      expect(value).toBeGreaterThan(0);
+    }
+    // Within a couple of percent; the sampling grid shifts slightly.
+    expect(middling).toBeCloseTo(coarse, 0);
+    expect(fine).toBeCloseTo(coarse, 0);
+    expect(Math.abs(fine - coarse) / coarse).toBeLessThan(0.05);
+  });
+});

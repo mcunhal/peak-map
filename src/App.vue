@@ -45,6 +45,7 @@
             <input type='number' step='50' v-model='detail' min='200' max='1600'>
           </div>
         </div>
+        <div class='row'><div class='col'></div><div class='col c-2 hint'>How finely the terrain is sampled. Sizes below are in millimetres on the paper, so this changes how much resolves, not how the map looks.</div></div>
 
         <template v-if="algorithm === 'ridgeline'">
           <div class='row'>
@@ -55,17 +56,17 @@
             </div>
           </div>
           <div class='row'>
-            <div class='col'>Height scale</div>
+            <div class='col'>Relief height (mm)</div>
             <div class='col c-2'>
-              <input type='range' min='5' max='200' step='1' v-model='heightScale'>
-              <input type='number' step='1' v-model='heightScale' min='5' max='200'>
+              <input type='range' min='2' max='120' step='1' v-model='heightScale'>
+              <input type='number' step='1' v-model='heightScale' min='2' max='120'>
             </div>
           </div>
           <div class='row'>
-            <div class='col'>Smoothing</div>
+            <div class='col'>Smoothing (mm)</div>
             <div class='col c-2'>
-              <input type='range' min='0' max='12' step='1' v-model='smoothSteps'>
-              <input type='number' step='1' v-model='smoothSteps' min='0' max='12'>
+              <input type='range' min='0' max='6' step='0.1' v-model='smoothSteps'>
+              <input type='number' step='0.1' v-model='smoothSteps' min='0' max='6'>
             </div>
           </div>
           <div class='row'>
@@ -113,10 +114,10 @@
         </div>
 
         <div class='row' v-if='isFlowFamily'>
-          <div class='col'>Separation</div>
+          <div class='col'>Line spacing (mm)</div>
           <div class='col c-2'>
-            <input type='range' min='1' max='20' step='0.5' v-model='separation'>
-            <input type='number' step='0.5' v-model='separation' min='1' max='20'>
+            <input type='range' min='0.4' max='8' step='0.1' v-model='separation'>
+            <input type='number' step='0.1' v-model='separation' min='0.4' max='8'>
           </div>
         </div>
 
@@ -129,10 +130,10 @@
             </div>
           </div>
           <div class='row'>
-            <div class='col'>Hatch spacing</div>
+            <div class='col'>Hatch spacing (mm)</div>
             <div class='col c-2'>
-              <input type='range' min='0.5' max='10' step='0.5' v-model='hatchSpacing'>
-              <input type='number' step='0.5' v-model='hatchSpacing' min='0.5' max='10'>
+              <input type='range' min='0.2' max='4' step='0.1' v-model='hatchSpacing'>
+              <input type='number' step='0.1' v-model='hatchSpacing' min='0.2' max='4'>
             </div>
           </div>
           <div class='row'>
@@ -206,6 +207,13 @@
             <input type='color' v-model='track.color'>
             <input type='number' step='0.05' v-model='track.width' min='0.05' max='2'>
             <a href='#' @click.prevent='removeTrack(i)'>remove</a>
+          </div>
+        </div>
+        <div class='row' v-if="tracks.length && trackMode === 'dotted'">
+          <div class='col'>Dot pitch / length (mm)</div>
+          <div class='col c-2'>
+            <input type='number' step='0.1' min='0.2' max='6' v-model='dotPitch'>
+            <input type='number' step='0.05' min='0.05' max='3' v-model='dotLength'>
           </div>
         </div>
         <div class='row' v-if='tracks.length'>
@@ -328,7 +336,7 @@ const RENDER_INPUTS = [
   'separation', 'contourInterval', 'contourCount', 'sunAzimuth', 'tanakaClasses',
   'hatchAngle', 'hatchSpacing', 'hatchLevels',
   'paper', 'orientation', 'margin', 'terrainPenColor', 'terrainPenWidth',
-  'includeBackground', 'paperColor',
+  'includeBackground', 'paperColor', 'dotPitch', 'dotLength',
   'showCompass', 'compassRadius', 'compassCorner', 'compassColor', 'compassPenWidth',
   'angle',
   'trackMode',
