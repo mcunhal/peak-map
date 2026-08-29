@@ -53,6 +53,7 @@ async function render(request, progress, stillCurrent) {
     pens = {},
     optimize: optimizeSettings = {},
     machine = {},
+    background = null,
   } = request;
 
   const source = getDemSource(sourceId);
@@ -147,6 +148,9 @@ async function render(request, progress, stillCurrent) {
     page,
     layers: optimized,
     title: request.title || 'peak map',
+    // Without this the sheet is transparent, and viewers that do not paint a
+    // background of their own show black strokes on black.
+    background,
   });
 
   return {

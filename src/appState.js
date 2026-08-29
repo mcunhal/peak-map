@@ -41,6 +41,7 @@ const appState = {
   orientation: 'landscape',
   margin: 15,
   paperColor: '#ffffff',
+  includeBackground: true,
   terrainPenColor: '#161616',
   terrainPenWidth: 0.25,
 

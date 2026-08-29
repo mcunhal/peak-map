@@ -165,6 +165,14 @@
           </div>
         </div>
         <div class='row'>
+          <div class='col'>Sheet background</div>
+          <div class='col c-2'>
+            <input type='checkbox' v-model='includeBackground'>
+            <input type='color' v-model='paperColor' :disabled='!includeBackground'>
+            <span class='hint'>keep on to view the file; turn off for a bare plot</span>
+          </div>
+        </div>
+        <div class='row'>
           <div class='col'>Terrain pen</div>
           <div class='col c-2'>
             <input type='color' v-model='terrainPenColor'>
@@ -298,6 +306,7 @@ const RENDER_INPUTS = [
   'separation', 'contourInterval', 'contourCount', 'sunAzimuth', 'tanakaClasses',
   'hatchAngle', 'hatchSpacing', 'hatchLevels',
   'paper', 'orientation', 'margin', 'terrainPenColor', 'terrainPenWidth',
+  'includeBackground', 'paperColor',
   'trackMode',
   'optimizeDedup', 'optimizeMerge', 'optimizeSimplify', 'optimizeSort', 'optimizeReloop',
   'dedupTolerance', 'mergeTolerance', 'simplifyTolerance',

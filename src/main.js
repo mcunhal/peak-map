@@ -141,6 +141,7 @@ function buildRequest() {
       travelSpeed: Number(appState.travelSpeed),
       penLiftTime: Number(appState.penLiftTime),
     },
+    background: appState.includeBackground ? appState.paperColor : null,
     title: appState.mapName || 'peak map',
   };
 }
