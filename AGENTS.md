@@ -307,13 +307,24 @@ informative way.
   so the flow is either disabled or needs a secret a public page cannot hold.
   Only DGT can change this, by registering another redirect URI.
 
-  One possibility is untested and cheap to try: the object store already answers
-  cross-origin requests with `Access-Control-Allow-Credentials: true` and
-  reflects whatever origin asks. So a visitor already signed in at the CDD site
-  might be able to have this page fetch a tile with `credentials: 'include'`.
-  Whether the cookie travels depends on its SameSite and domain, which cannot be
-  determined without a session. Worth attempting with a fall back to a file the
-  visitor supplies, rather than assuming either way.
+  **Downloads are S3 presigned URLs**, settled from a HAR of a real download. The
+  request carried no cookie and no Authorization header: the signature is in the
+  query string, `X-Amz-Expires` is 3600, and `X-Amz-SignedHeaders` is `host`
+  alone. So a presigned link works from any origin with no credentials, and the
+  store already reflects whatever origin asks. Fetching tiles from this app is
+  therefore possible; only obtaining the signature is not, since the API that
+  mints it sends no `Access-Control-Allow-Origin` for any origin at all, being
+  only ever called same-origin.
+
+  That splits the problem cleanly. Discovery is public: `/search` will name the
+  tiles covering a place without an account. Fetching is open, given a signature.
+  Only the minting is closed. So the app can always say which tiles are needed,
+  and take them either as pasted presigned URLs, good for an hour, or as files.
+
+  A real tile validated the reader and the grid formula together:
+  `MDT-50cm-238372-04-2024_v01.tif` is 2000x2000 at exactly 0.500m, nodata -999,
+  extent x 38000..39000 y 71000..72000, which is precisely what `tileBounds`
+  predicts from the name.
 
   The authentication, for whoever writes the fetcher, is Keycloak at
   `auth.cdd.dgterritorio.gov.pt/realms/dgterritorio`, an ordinary authorization
