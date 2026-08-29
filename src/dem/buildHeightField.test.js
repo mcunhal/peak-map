@@ -105,6 +105,18 @@ describe('buildHeightField', () => {
     }
   });
 
+  it('counts a tile with no dimensions as missing rather than silently blanking it', async () => {
+    // This is the shape a released ImageBitmap takes: pixel data present, width
+    // and height zero. Treated as valid it produces a field that is entirely
+    // nodata while reporting that every tile loaded.
+    const loadTile = async () => ({ width: 0, height: 0, data: new Uint8ClampedArray(4) });
+    await expect(
+      buildHeightField({
+        source: terrarium, bbox, fieldWidth: 10, fieldHeight: 10, loadTile,
+      })
+    ).rejects.toThrow(/no elevation tiles/i);
+  });
+
   it('fails loudly when no tile loads at all', async () => {
     await expect(
       buildHeightField({

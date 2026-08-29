@@ -155,14 +155,19 @@ export const ALGORITHMS = {
     description:
       'Straight parallel rules whose local density follows a hillshade, rendering tone rather than structure.',
     planar: true,
-    defaults: { angle: 45, spacing: 2, levels: 4, azimuth: 315, zFactor: 3 },
+    defaults: { angle: 45, spacing: 2, toneLevels: 4, azimuth: 315, zFactor: 3 },
     run(field, options) {
       const shade = computeHillshade(computeGradient(field), {
         azimuth: options.azimuth,
         zFactor: options.zFactor,
       });
       return [
-        { name: 'hatching', weight: 1, polylines: hillshadeHatching(shade, options) },
+        {
+          name: 'hatching',
+          weight: 1,
+          // Renamed at this boundary so it cannot collide with the contour levels.
+          polylines: hillshadeHatching(shade, { ...options, levels: options.toneLevels }),
+        },
       ];
     },
   },

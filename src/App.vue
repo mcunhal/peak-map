@@ -17,86 +17,217 @@
         <a href="#" class='draw peaks' :title='mainActionTitle' @click.prevent='onMainActionClick'>{{mainActionText}}</a>
       </div>
       <div class='settings-form' v-if='settingsOpen && shouldDraw'>
-        <div v-if='shouldDraw'>
-          <find-bounds></find-bounds>
+        <find-bounds></find-bounds>
+
+        <h3>Terrain</h3>
+        <div class='row'>
+          <div class='col'>Algorithm</div>
+          <div class='col c-2'>
+            <select v-model='algorithm'>
+              <option v-for='a in algorithms' :value='a.id' :key='a.id'>{{a.name}}</option>
+            </select>
+          </div>
+        </div>
+        <div class='row'><div class='col'></div><div class='col c-2 hint'>{{algorithmDescription}}</div></div>
+
+        <div class='row'>
+          <div class='col'>Elevation data</div>
+          <div class='col c-2'>
+            <select v-model='demSource'>
+              <option v-for='s in demSources' :value='s.id' :key='s.id' :disabled='!s.available'>{{s.name}}</option>
+            </select>
+          </div>
+        </div>
+        <div class='row'>
+          <div class='col'>Detail</div>
+          <div class='col c-2'>
+            <input type='range' min='200' max='1600' step='50' v-model='detail'>
+            <input type='number' step='50' v-model='detail' min='200' max='1600'>
+          </div>
+        </div>
+
+        <template v-if="algorithm === 'ridgeline'">
+          <div class='row'>
+            <div class='col'>Line count</div>
+            <div class='col c-2'>
+              <input type='range' min='10' max='200' step='1' v-model='lineDensity'>
+              <input type='number' step='1' v-model='lineDensity' min='10' max='200'>
+            </div>
+          </div>
           <div class='row'>
             <div class='col'>Height scale</div>
             <div class='col c-2'>
-              <input type='range' min='10' max='256' step='1' v-model='heightScale'> 
-              <input type='number' :step='1' v-model='heightScale'  autocomplete='off' autocorrect='off' autocapitalize="off" spellcheck="false" min='10' max='256'>
+              <input type='range' min='5' max='200' step='1' v-model='heightScale'>
+              <input type='number' step='1' v-model='heightScale' min='5' max='200'>
             </div>
           </div>
           <div class='row'>
-              <div class='col'>Theme</div>
-              <div class='col c-2'>
-                <select v-model='selectedTheme'>
-                  <option v-for="(theme, index) in themes" :value="theme.value" :key='index'>{{theme.name}}</option>
-                </select>
-                <a href='#' @click.prevent='showThemeDetails = !showThemeDetails' :class="{'options-container-toggle': true, 'is-open': showThemeDetails}">{{ showThemeDetails ? 'hide options ' : 'show options' }}</a>
-              </div>
+            <div class='col'>Smoothing</div>
+            <div class='col c-2'>
+              <input type='range' min='0' max='12' step='1' v-model='smoothSteps'>
+              <input type='number' step='1' v-model='smoothSteps' min='0' max='12'>
+            </div>
           </div>
+          <div class='row'>
+            <div class='col'>Ocean level</div>
+            <div class='col c-2'>
+              <input type='range' min='-20' max='500' step='1' v-model='oceanLevel'>
+              <input type='number' step='1' v-model='oceanLevel' min='-20' max='500'>
+            </div>
+          </div>
+          <div class='row'>
+            <div class='col'>Hide what is behind</div>
+            <div class='col c-2'><input type='checkbox' v-model='occlude'></div>
+          </div>
+        </template>
 
-          <div v-if='showThemeDetails'  class='options-container'>
-            <div class='row'>
-              <div class='col'>Colors</div>
-              <div class='col colors c-2'>
-                <div class='color-container'>
-                  <color-picker v-model='lineColor' @change='updateLinesColor'></color-picker>
-                  <div class='color-label'>line stroke</div>
-                </div>
-                <div class='color-container'>
-                  <color-picker v-model='lineBackground' @change='updateLinesColor'></color-picker>
-                  <div class='color-label'>line fill</div>
-                </div>
-                <div class='color-container'>
-                  <color-picker v-model='backgroundColor' @change='updateBackground'></color-picker>
-                  <div class='color-label'>background</div>
-                </div>
-              </div>
-            </div>
-            <div class='row'>
-              <div class='col'>Line density</div>
-              <div class='col c-2'>
-                <input type="range" min="1" max="100" step="1" v-model="lineDensity"> 
-                <input type='number' :step='1' v-model='lineDensity'  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" min='1' max='100'>
-              </div>
-            </div>
-            <div class='row'>
-              <div class='col'>Ocean level</div>
-              <div class='col c-2'>
-                <input type='range' min='-20' max='500' step='1' v-model='oceanLevel'> 
-                <input type='number' :step='1' v-model='oceanLevel' autocomplete='off' autocorrect='off' autocapitalize='off' spellcheck='false' max='500' min='-20'>
-              </div>
-            </div>
-            <div class='row'>
-              <div class='col'>Smooth steps</div>
-              <div class='col c-2'>
-                <input type='range' min='1' max='12' step='1' v-model='smoothSteps'> 
-                <input type='number' :step='1' v-model='smoothSteps'  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" min='1' max='12'>
-              </div>
-            </div>
-            <div class='row'>
-              <div class='col'>Line width</div>
-              <div class='col c-2'>
-                <input type='range' min='0.1' max='5' step='0.1' v-model='lineWidth'> 
-                <input type='number' :step='0.1' v-model='lineWidth'  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" min='0.1' max='5'>
-              </div>
-            </div>
-            <div class='row'>
-              <div class='col'>Overlay opacity</div>
-              <div class='col c-2'>
-                <input type="range" min="1" max="100" step="1" v-model="mapOpacity"> 
-                <input type='number' :step='1' v-model='mapOpacity'  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" min='1' max='100'>
-              </div>
-            </div>
-            <div class='row'>
-              <div class='col'>Map Angle</div>
-              <div class='col c-2'>
-                <input type="range" min="-180" max="180" step="1" v-model="angle"> 
-                <input type='number' :step='1' v-model='angle'  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" min='-180' max='180'>
-              </div>
+        <template v-if='isContourFamily'>
+          <div class='row'>
+            <div class='col'>Interval (m)</div>
+            <div class='col c-2'>
+              <input type='number' step='10' v-model='contourInterval' placeholder='auto' min='1'>
             </div>
           </div>
+          <div class='row'>
+            <div class='col'>Contours, if auto</div>
+            <div class='col c-2'>
+              <input type='range' min='5' max='80' step='1' v-model='contourCount'>
+              <input type='number' step='1' v-model='contourCount' min='5' max='80'>
+            </div>
+          </div>
+        </template>
+
+        <div class='row' v-if='isLit'>
+          <div class='col'>Sun azimuth</div>
+          <div class='col c-2'>
+            <input type='range' min='0' max='359' step='1' v-model='sunAzimuth'>
+            <input type='number' step='1' v-model='sunAzimuth' min='0' max='359'>
+          </div>
+        </div>
+        <div class='row' v-if="algorithm === 'tanaka'">
+          <div class='col'>Weight classes</div>
+          <div class='col c-2'>
+            <input type='range' min='1' max='6' step='1' v-model='tanakaClasses'>
+            <input type='number' step='1' v-model='tanakaClasses' min='1' max='6'>
+          </div>
+        </div>
+
+        <div class='row' v-if='isFlowFamily'>
+          <div class='col'>Separation</div>
+          <div class='col c-2'>
+            <input type='range' min='1' max='20' step='0.5' v-model='separation'>
+            <input type='number' step='0.5' v-model='separation' min='1' max='20'>
+          </div>
+        </div>
+
+        <template v-if="algorithm === 'hillshade-hatching'">
+          <div class='row'>
+            <div class='col'>Hatch angle</div>
+            <div class='col c-2'>
+              <input type='range' min='0' max='179' step='1' v-model='hatchAngle'>
+              <input type='number' step='1' v-model='hatchAngle' min='0' max='179'>
+            </div>
+          </div>
+          <div class='row'>
+            <div class='col'>Hatch spacing</div>
+            <div class='col c-2'>
+              <input type='range' min='0.5' max='10' step='0.5' v-model='hatchSpacing'>
+              <input type='number' step='0.5' v-model='hatchSpacing' min='0.5' max='10'>
+            </div>
+          </div>
+          <div class='row'>
+            <div class='col'>Tonal levels</div>
+            <div class='col c-2'>
+              <input type='range' min='1' max='8' step='1' v-model='hatchLevels'>
+              <input type='number' step='1' v-model='hatchLevels' min='1' max='8'>
+            </div>
+          </div>
+        </template>
+
+        <h3>Paper</h3>
+        <div class='row'>
+          <div class='col'>Size</div>
+          <div class='col c-2'>
+            <select v-model='paper'>
+              <option v-for='p in papers' :value='p' :key='p'>{{p}}</option>
+            </select>
+            <select v-model='orientation'>
+              <option value='landscape'>landscape</option>
+              <option value='portrait'>portrait</option>
+            </select>
+          </div>
+        </div>
+        <div class='row'>
+          <div class='col'>Margin (mm)</div>
+          <div class='col c-2'>
+            <input type='range' min='0' max='60' step='1' v-model='margin'>
+            <input type='number' step='1' v-model='margin' min='0' max='60'>
+          </div>
+        </div>
+        <div class='row'>
+          <div class='col'>Terrain pen</div>
+          <div class='col c-2'>
+            <input type='color' v-model='terrainPenColor'>
+            <input type='number' step='0.05' v-model='terrainPenWidth' min='0.05' max='2'>
+          </div>
+        </div>
+
+        <h3>GPX routes</h3>
+        <div class='row'>
+          <div class='col'>Add files</div>
+          <div class='col c-2'><input type='file' accept='.gpx' multiple @change='onGpxChosen'></div>
+        </div>
+        <div class='row' v-for='(track, i) in tracks' :key="'track' + i">
+          <div class='col track-name'>{{track.name}}</div>
+          <div class='col c-2'>
+            <input type='color' v-model='track.color'>
+            <input type='number' step='0.05' v-model='track.width' min='0.05' max='2'>
+            <a href='#' @click.prevent='removeTrack(i)'>remove</a>
+          </div>
+        </div>
+        <div class='row' v-if='tracks.length'>
+          <div class='col'>Behind a ridge</div>
+          <div class='col c-2'>
+            <select v-model='trackMode'>
+              <option value='dotted'>draw as dots</option>
+              <option value='hidden'>hide</option>
+              <option value='visible'>always show</option>
+            </select>
+          </div>
+        </div>
+
+        <h3>Plot optimization</h3>
+        <div class='row'>
+          <div class='col'>Passes</div>
+          <div class='col c-2 passes'>
+            <label><input type='checkbox' v-model='optimizeDedup'> dedup</label>
+            <label><input type='checkbox' v-model='optimizeMerge'> merge</label>
+            <label><input type='checkbox' v-model='optimizeSort'> sort</label>
+            <label><input type='checkbox' v-model='optimizeReloop'> reloop</label>
+            <label><input type='checkbox' v-model='optimizeSimplify'> simplify</label>
+          </div>
+        </div>
+        <div class='row'>
+          <div class='col'>Tolerances (mm)</div>
+          <div class='col c-2'>
+            <input type='number' step='0.01' v-model='dedupTolerance' min='0' title='deduplicate'>
+            <input type='number' step='0.01' v-model='mergeTolerance' min='0' title='merge'>
+            <input type='number' step='0.01' v-model='simplifyTolerance' min='0' title='simplify'>
+          </div>
+        </div>
+
+        <div v-if='metrics'>
+          <h3>This plot</h3>
+          <div class='row'><div class='col'>Estimated time</div><div class='col c-2'>{{metrics.time}}</div></div>
+          <div class='row'><div class='col'>Pen down</div><div class='col c-2'>{{metrics.penDown}}</div></div>
+          <div class='row'><div class='col'>Pen up</div><div class='col c-2'>{{metrics.penUp}}</div></div>
+          <div class='row'><div class='col'>Pen lifts</div><div class='col c-2'>{{metrics.lifts}} over {{metrics.paths}} paths</div></div>
+          <div class='row' v-if='metrics.saved'><div class='col'>Optimizer</div><div class='col c-2'>{{metrics.saved}}</div></div>
+          <div class='row' v-if='renderInfo'>
+            <div class='col'>Source</div>
+            <div class='col c-2'>zoom {{renderInfo.zoom}}, {{renderInfo.tiles}} tiles, {{renderInfo.field}} samples, {{renderInfo.minElevation}} to {{renderInfo.maxElevation}} m</div>
+          </div>
+        </div>
 
         <div v-if='!showLess'>
           <h3>Export</h3>
@@ -107,17 +238,18 @@
           </div>
 
           <div class='row'>
-            <a href='#'  @click.prevent='doExportToPNG' class='col export'>As an image (.png)</a> 
-            <span class='col c-2'>
-              Save the current screen as a raster image.
-            </span>
+            <a href='#' @click.prevent='doExportToSVG' class='col export'>Plot-ready SVG</a>
+            <span class='col c-2'>Layered, in millimetres, one layer per pen.</span>
           </div>
           <div class='row'>
-            <a href='#'  @click.prevent='doExportToSVG' class='col export'>As a vector (.svg)</a> 
-            <span class='col c-2'>
-              Save the current screen as a vector image.
-            </span>
+            <a href='#' @click.prevent='doExportToPNG' class='col export'>Preview image (.png)</a>
+            <span class='col c-2'>The preview as a raster image.</span>
           </div>
+          <div class='row' v-if='vpypeRecipe'>
+            <div class='col'>vpype</div>
+            <div class='col c-2'><pre class='recipe'>{{vpypeRecipe}}</pre></div>
+          </div>
+
           <h3>About</h3>
           <div>
             <p>
@@ -133,7 +265,6 @@
             </p>
           </div>
         </div>
-</div>
         <div class='close-link' :class="{'map-visible': shouldDraw}">
           <a href="#" @click.prevent='showLess = !showLess'>{{showLess ? 'show more' : 'show less'}}</a>
           <a href="#" @click.prevent='settingsOpen = false'>close</a>
@@ -155,194 +286,151 @@
 
 <script>
 import appState from './appState';
-import ColorPicker from './components/ColorPicker.vue';
 import Loading from './components/Loading.vue';
 import FindBounds from './components/FindBounds.vue';
 import EditableLabel from './components/EditableLabel.vue';
 import About from './components/About.vue';
-import tinycolor from 'tinycolor2';
+
+/** Settings that change the drawing, and so should trigger a re-render. */
+const RENDER_INPUTS = [
+  'algorithm', 'demSource', 'detail',
+  'lineDensity', 'heightScale', 'smoothSteps', 'oceanLevel', 'occlude',
+  'separation', 'contourInterval', 'contourCount', 'sunAzimuth', 'tanakaClasses',
+  'hatchAngle', 'hatchSpacing', 'hatchLevels',
+  'paper', 'orientation', 'margin', 'terrainPenColor', 'terrainPenWidth',
+  'trackMode',
+  'optimizeDedup', 'optimizeMerge', 'optimizeSimplify', 'optimizeSort', 'optimizeReloop',
+  'dedupTolerance', 'mergeTolerance', 'simplifyTolerance',
+];
+
+function download(blob, name) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
 
 export default {
   name: 'App',
   data() {
     return appState;
   },
-  components: {
-    Loading,
-    About,
-    EditableLabel,
-    ColorPicker,
-    FindBounds
-  },
+  components: { Loading, About, EditableLabel, FindBounds },
+
   mounted() {
-    this.onResize = () => {
-      appState.sizeDirty = true;
-    }
+    this.onResize = () => { appState.sizeDirty = true; };
     window.addEventListener('resize', this.onResize, true);
     appState.init();
+
+    // Re-render on any setting that changes the drawing. Doing this by list
+    // rather than a deep watcher keeps typing in a number field from firing a
+    // render per keystroke on unrelated state.
+    this.unwatch = RENDER_INPUTS.map((key) =>
+      this.$watch(key, () => { if (this.shouldDraw) this.scheduleRender(); })
+    );
+    // Pen colour and width are per track, so they need their own deep watch.
+    this.unwatch.push(
+      this.$watch('tracks', () => { if (this.shouldDraw) this.scheduleRender(); }, { deep: true })
+    );
   },
 
   beforeDestroy() {
     window.removeEventListener('resize', this.onResize, true);
+    (this.unwatch || []).forEach((stop) => stop());
+    clearTimeout(this.renderTimer);
   },
 
   computed: {
     mainActionText() {
-      if (this.shouldDraw) {
-        return 'Draw original map';
-      }
-      return 'Click here to draw peaks'
+      return this.shouldDraw ? 'Show the map' : 'Draw this region';
     },
     mainActionTitle() {
-      if (this.shouldDraw) {
-        return 'Show original map';
-      }
-      return 'Draw the elevation chart';
+      return this.shouldDraw ? 'Show the original map' : 'Turn this region into lines';
+    },
+    algorithmDescription() {
+      const found = this.algorithms.find((a) => a.id === this.algorithm);
+      return found ? found.description : '';
+    },
+    isContourFamily() {
+      return this.algorithm.indexOf('contours') === 0 || this.algorithm === 'tanaka';
+    },
+    isLit() {
+      return this.algorithm === 'tanaka' || this.algorithm === 'hillshade-hatching';
+    },
+    isFlowFamily() {
+      return this.algorithm.indexOf('streamlines') === 0 || this.algorithm === 'hachures';
     },
     lineColorHex() {
-      return tinycolor(this.lineColor).toHexString();
-    }
+      return this.terrainPenColor;
+    },
   },
 
   watch: {
-    selectedTheme(newValue) {
-      let themeDefinition = this.themes.find(x => x.value === newValue);
-      if (!themeDefinition) return; // how is this possible?
-
-      this.lineColor = tinycolor(themeDefinition.lineColor).toRgb();
-      this.lineBackground = tinycolor(themeDefinition.lineBackground).toRgb();
-      this.backgroundColor = tinycolor(themeDefinition.backgroundColor).toRgb();
-      this.redraw();
-    },
     angle(newValue) {
-      let angle = Number.parseFloat(newValue);
-      map.setBearing(angle);
+      if (window.map) window.map.setBearing(Number.parseFloat(newValue));
     },
-    lineDensity() {
-      this.redraw();
-    },
-    oceanLevel() {
-      this.redraw();
-    },
-    heightScale() {
-      this.redraw();
-    },
-    smoothSteps() {
-      this.redraw();
-    },
-    lineWidth() {
-      this.redraw();
-    },
-    mapOpacity(newValue) {
-      let heightMap = this.$refs.heightMap;
-      if (heightMap) {
-        heightMap.style.opacity = parseFloat(newValue) / 100;
-      }
-    },
-    shouldDraw(newValue) {
-      if (!newValue) {
-        this.error = null;
-      }
+    shouldDraw() {
+      this.error = null;
       this.updateMap();
     },
   },
+
   methods: {
     onMainActionClick() {
       this.shouldDraw = !this.shouldDraw;
     },
-    updateBackground(x) {
-      this.redraw();
+
+    /** Coalesce a burst of slider movements into one render. */
+    scheduleRender() {
+      clearTimeout(this.renderTimer);
+      this.renderTimer = setTimeout(() => this.updateMap(), 250);
     },
 
-    updateLinesColor(x) {
-      this.redraw();
+    onGpxChosen(event) {
+      const files = Array.from(event.target.files || []);
+      if (files.length) appState.addGpxFiles(files);
+      // Let the same file be chosen again after it is removed.
+      event.target.value = '';
     },
 
     doExportToSVG() {
-      let string = appState.exportToSVG({
-        labels: collectText()
-      });
-      if (!string) return;
-      let blob = new Blob([string], {type: "text/xml"});
-      let url = window.URL.createObjectURL(blob);
-      let a = document.createElement("a");
-      a.href = url;
-      a.download = 'ridge-lines.svg'
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const svg = appState.exportToSVG();
+      if (!svg) {
+        this.error = 'Nothing has been rendered yet.';
+        return;
+      }
+      download(new Blob([svg], { type: 'image/svg+xml' }), (this.mapName || 'peak-map') + '.svg');
     },
 
     doExportToPNG() {
-      let printableCanvas = this.getBlendedCanvas();
-      printableCanvas.toBlob(function(blob) {
-        let url = window.URL.createObjectURL(blob);
-        let a = document.createElement("a");
-        a.href = url;
-        a.download = 'ridge-lines.png';
-        a.click();
-        window.URL.revokeObjectURL(url);
-      }, 'image/png')
+      const canvas = this.$refs.heightMap;
+      if (!canvas) return;
+      canvas.toBlob((blob) => {
+        download(blob, (this.mapName || 'peak-map') + '.png');
+      }, 'image/png');
     },
-
-    getBlendedCanvas() {
-      let heightMapCanvas = this.$refs.heightMap;
-      let width = map.painter.width;
-      let height = map.painter.height;
-      let blended = document.createElement('canvas');
-      let blendedCtx = blended.getContext('2d');
-      blended.width = width;
-      blended.height = height;
-      const globalAlpha = Number.parseFloat(appState.mapOpacity)/100;
-      if (globalAlpha < 1 || !this.shouldDraw) {
-        map._render();
-        blendedCtx.drawImage(map.getCanvas(), 0, 0)
-      }
-
-      if (globalAlpha > 0 && this.shouldDraw) {
-        blendedCtx.globalAlpha = globalAlpha;
-        blendedCtx.drawImage(heightMapCanvas, 0, 0, heightMapCanvas.width, heightMapCanvas.height, 0, 0, width, height);
-      }
-
-      collectText().forEach(label => {
-        drawHtml(label, blendedCtx);
-      })
-
-      return blended;
-    }
-  }
-}
-
-function collectText() {
-  return Array.from(
-    document.querySelectorAll('.printable')
-  ).map(element => {
-    let computedStyle = window.getComputedStyle(element);
-    let bounds = element.getBoundingClientRect();
-    let fontSize = Number.parseInt(computedStyle.fontSize, 10);
-    return {
-      text: element.innerText,
-      bounds,
-      fontSize,
-      color: computedStyle.color,
-      fontFamily: computedStyle.fontFamily,
-      fill: computedStyle.color,
-    }
-  });
-}
-
-function drawHtml(element, ctx) {
-  if (!element) return;
-  ctx.save();
-  let dpr = window.devicePixelRatio || 1;
-  ctx.font = dpr * element.fontSize + 'px ' + element.fontFamily;
-  ctx.fillStyle = element.color;
-  ctx.textAlign = 'end'
-  ctx.fillText(element.text, element.bounds.right * dpr, element.bounds.bottom * dpr)
-  ctx.restore();
-}
+  },
+};
 </script>
 
 <style lang='stylus'>
+.hint
+  font-size 12px
+  opacity 0.75
+.passes label
+  margin-right 10px
+  white-space nowrap
+.track-name
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+.recipe
+  font-size 11px
+  white-space pre-wrap
+  overflow-x auto
+
 @import('./variables.styl');
 
 .app-container {

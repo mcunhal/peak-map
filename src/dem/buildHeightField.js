@@ -27,8 +27,15 @@ export async function loadTilePixels(url, { signal } = {}) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(bitmap, 0, 0);
   const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+
+  // Read the dimensions before releasing the bitmap. Closing it sets width and
+  // height to zero, and reading them afterwards yields a tile that claims to be
+  // empty, so every sample indexes out of bounds and becomes nodata.
+  const width = bitmap.width;
+  const height = bitmap.height;
   bitmap.close();
-  return { width: bitmap.width, height: bitmap.height, data };
+
+  return { width, height, data };
 }
 
 /**
@@ -77,7 +84,12 @@ export async function buildHeightField({
       const tx = range.minX + (i % range.width);
       const ty = range.minY + Math.floor(i / range.width);
       return loadTile(tileUrl(source, chosenZoom, tx, ty), { signal })
-        .then((pixels) => tiles.set(`${tx},${ty}`, pixels))
+        .then((pixels) => {
+          // A tile with no dimensions is unusable, and must be counted as missing
+          // rather than quietly turning its whole area into nodata.
+          const usable = pixels && pixels.width > 0 && pixels.height > 0 && pixels.data;
+          tiles.set(`${tx},${ty}`, usable ? pixels : null);
+        })
         .catch(() => tiles.set(`${tx},${ty}`, null))
         .finally(() => report(++loaded, `Downloaded ${loaded} of ${range.count} tiles`));
     })

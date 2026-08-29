@@ -44,6 +44,21 @@ describe('writeSvg', () => {
     expect(svg).toMatch(/stroke-width="0.3"/);
   });
 
+  it('puts stroke and width on every path, not only on the group', () => {
+    // Simple viewers do not apply inherited presentation attributes, and render
+    // a page of paths that inherit their stroke as blank.
+    const svg = writeSvg({
+      page,
+      layers: [layer({ polylines: [[0, 0, 1, 1], [2, 2, 3, 3]] })],
+    });
+    const paths = svg.match(/<path [^>]*>/g);
+    expect(paths).toHaveLength(2);
+    for (const path of paths) {
+      expect(path).toContain('stroke="#161616"');
+      expect(path).toContain('stroke-width="0.3"');
+    }
+  });
+
   it('never fills a path', () => {
     const svg = writeSvg({ page, layers: [layer()] });
     expect(svg).toContain('fill="none"');

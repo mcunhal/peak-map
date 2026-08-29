@@ -143,7 +143,12 @@ export function marchSquares(field, level) {
  */
 export function contourLevels(field, options = {}) {
   const { chainTolerance = 0.01 } = options;
-  const levels = options.levels ?? chooseLevels(field, options);
+  // Only an explicit list of elevations counts. Algorithms share one options bag,
+  // and `levels` means a tonal step count to the hatching algorithm, so accepting
+  // whatever turns up here silently mixes the two.
+  const levels = Array.isArray(options.levels)
+    ? options.levels
+    : chooseLevels(field, options);
 
   return levels
     .map((level) => ({

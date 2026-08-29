@@ -42,11 +42,21 @@ function polylineToPathData(points) {
 }
 
 function writeLayer(layer) {
+  const stroke = escapeAttr(layer.penColor || '#000000');
+  const strokeWidth = num(layer.penWidth ?? 0.3);
+
   const paths = [];
   for (const points of layer.polylines || []) {
     // A single point is not a stroke; it would be a pen-down with nowhere to go.
     if (!points || points.length < 4) continue;
-    paths.push(`    <path fill="none" d="${polylineToPathData(points)}"/>`);
+    // Stroke and width are repeated on every path rather than left to inherit
+    // from the group. Inheritance is correct SVG, but plenty of simple viewers
+    // (phone galleries, image previews, some plotter front-ends) do not apply it
+    // and draw nothing at all. The group keeps them too, for Inkscape.
+    paths.push(
+      `    <path fill="none" stroke="${stroke}" stroke-width="${strokeWidth}" ` +
+        `stroke-linecap="round" stroke-linejoin="round" d="${polylineToPathData(points)}"/>`
+    );
   }
   if (paths.length === 0) return '';
 
@@ -56,8 +66,8 @@ function writeLayer(layer) {
     `inkscape:groupmode="layer"`,
     `inkscape:label="${label}"`,
     `fill="none"`,
-    `stroke="${escapeAttr(layer.penColor || '#000000')}"`,
-    `stroke-width="${num(layer.penWidth ?? 0.3)}"`,
+    `stroke="${stroke}"`,
+    `stroke-width="${strokeWidth}"`,
     `stroke-linecap="round"`,
     `stroke-linejoin="round"`,
   ];
