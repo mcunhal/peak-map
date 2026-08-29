@@ -20,7 +20,7 @@
 import { computeRange, isNoData } from './heightField';
 import { createOcclusionBuffer } from './occlusion';
 import { createRowIterator, smoothPolyline } from './algorithms/ridgeline';
-import { lngLatToField } from '../dem/tileMath';
+import { regionFromBbox } from '../dem/tileMath';
 
 export const TRACK_MODES = ['hidden', 'visible', 'dotted'];
 
@@ -32,14 +32,12 @@ export const TRACK_MODES = ['hidden', 'visible', 'dotted'];
 export function projectTrack(track, field, { minHeight, displacementPerMetre }) {
   const projected = [];
 
+  // Placing a track has to use the same mapping the terrain was sampled with,
+  // rotation included, or a turned sheet puts the route somewhere else entirely.
+  const region = field.region || regionFromBbox(field.bbox);
+
   for (const point of track.points) {
-    const { x, y } = lngLatToField(
-      field.bbox,
-      field.width,
-      field.height,
-      point.lon,
-      point.lat
-    );
+    const { x, y } = region.fromLngLat(field.width, field.height, point.lon, point.lat);
     if (x < 0 || y < 0 || x > field.width || y > field.height) continue;
 
     // Ride the rendered surface rather than the elevation recorded by the GPS.
@@ -170,7 +168,7 @@ export function renderRidgelineScene(field, options = {}) {
     return { terrain: [], tracks: tracks.map((t) => ({ name: t.name, polylines: [] })) };
   }
 
-  if (tracks.length && !field.bbox) {
+  if (tracks.length && !field.region && !field.bbox) {
     throw new Error('Placing GPX tracks needs a height field with a bounding box');
   }
 

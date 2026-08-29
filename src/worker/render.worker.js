@@ -11,6 +11,7 @@
  */
 import { buildHeightField, loadTilePixels } from '../dem/buildHeightField';
 import { getDemSource, unavailableReason } from '../dem/sources';
+import { createRegion, regionFromBbox } from '../dem/tileMath';
 import { computeRange } from '../core/heightField';
 import { renderRidgelineScene } from '../core/scene';
 import { renderTerrain, getAlgorithm } from '../core/algorithms/index';
@@ -18,6 +19,7 @@ import { createPage, createPageMapper } from '../core/page';
 import { buildLayers } from '../core/layers';
 import { writeSvg } from '../core/svgWriter';
 import { optimizeLayers, measurePlot, compareMetrics, vpypeRecipe } from '../core/optimize';
+import { compassForPage } from '../core/compass';
 
 let currentJob = 0;
 
@@ -42,7 +44,8 @@ self.onmessage = async (event) => {
 
 async function render(request, progress, stillCurrent) {
   const {
-    bbox,
+    bbox = null,
+    regionCorners = null,
     sourceId = 'terrarium',
     detail = 900,
     algorithm = 'ridgeline',
@@ -54,10 +57,15 @@ async function render(request, progress, stillCurrent) {
     optimize: optimizeSettings = {},
     machine = {},
     background = null,
+    compass = null,
   } = request;
 
   const source = getDemSource(sourceId);
   if (!source) throw new Error(unavailableReason(sourceId));
+
+  // The sheet is a rotated rectangle in general; a bounding box is the north-up
+  // special case, kept so the worker can still be driven with one.
+  const region = regionCorners ? createRegion(regionCorners) : regionFromBbox(bbox);
 
   const page = createPage(pageSettings);
 
@@ -70,7 +78,7 @@ async function render(request, progress, stillCurrent) {
   progress('Downloading elevation tiles', 0);
   const { field, zoom, tileCount, missingTiles } = await buildHeightField({
     source,
-    bbox,
+    region,
     fieldWidth,
     fieldHeight,
     loadTile: loadTilePixels,
@@ -133,6 +141,27 @@ async function render(request, progress, stillCurrent) {
           trackPens: pens.tracks || [],
         })
       );
+    }
+  }
+
+  // Its own layer, so it can be plotted in a different pen or left off the
+  // sheet entirely without touching the map.
+  if (compass && compass.show) {
+    const polylines = compassForPage(page, {
+      radius: compass.radius,
+      bearing: compass.bearing,
+      corner: compass.corner,
+    });
+    if (polylines.length) {
+      layers = layers.concat([
+        {
+          id: 'compass',
+          label: 'compass',
+          penColor: compass.color || '#161616',
+          penWidth: compass.width ?? 0.35,
+          polylines,
+        },
+      ]);
     }
   }
 

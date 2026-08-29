@@ -9,7 +9,7 @@ import { createHeightField, NODATA } from '../core/heightField';
 import {
   chooseZoom,
   tileRangeForBbox,
-  fieldToLngLat,
+  regionFromBbox,
   lngToTileX,
   latToTileY,
 } from './tileMath';
@@ -52,6 +52,7 @@ export async function loadTilePixels(url, { signal } = {}) {
 export async function buildHeightField({
   source,
   bbox,
+  region: suppliedRegion = null,
   fieldWidth,
   fieldHeight,
   zoom = null,
@@ -65,12 +66,16 @@ export async function buildHeightField({
     throw new Error('Field dimensions must be positive');
   }
 
+  // A plain bounding box is just a region that happens to be north-up.
+  const region = suppliedRegion || regionFromBbox(bbox);
+  const coverage = region.bbox;
+
   const chosenZoom =
     zoom === null
-      ? chooseZoom(bbox, { maxZoom: source.maxZoom ?? 15, tileBudget })
+      ? chooseZoom(coverage, { maxZoom: source.maxZoom ?? 15, tileBudget })
       : Math.min(zoom, source.maxZoom ?? 15);
 
-  const range = tileRangeForBbox(bbox, chosenZoom);
+  const range = tileRangeForBbox(coverage, chosenZoom);
   const report = (loaded, message) =>
     onProgress && onProgress({ loaded, total: range.count, message });
 
@@ -109,7 +114,7 @@ export async function buildHeightField({
   for (let y = 0; y < fieldHeight; ++y) {
     for (let x = 0; x < fieldWidth; ++x) {
       // Sample at pixel centres so the field is not biased half a cell north-west.
-      const { lng, lat } = fieldToLngLat(bbox, fieldWidth, fieldHeight, x + 0.5, y + 0.5);
+      const { lng, lat } = region.toLngLat(fieldWidth, fieldHeight, x + 0.5, y + 0.5);
 
       const globalX = lngToTileX(lng, chosenZoom);
       const globalY = latToTileY(lat, chosenZoom);
@@ -135,7 +140,16 @@ export async function buildHeightField({
   }
 
   return {
-    field: createHeightField({ width: fieldWidth, height: fieldHeight, data, bbox }),
+    field: createHeightField({
+      width: fieldWidth,
+      height: fieldHeight,
+      data,
+      // Report the box that was asked for when one was; deriving it back from
+      // the region round-trips through the projection and changes the last few
+      // digits for no reason. A rotated region has no such box of its own.
+      bbox: suppliedRegion ? coverage : bbox,
+      region,
+    }),
     zoom: chosenZoom,
     tileCount: range.count,
     missingTiles: [...tiles.values()].filter((t) => !t).length,

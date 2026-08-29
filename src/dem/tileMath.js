@@ -100,47 +100,74 @@ export function lngLatToField(bbox, fieldWidth, fieldHeight, lng, lat) {
 }
 
 /**
- * Crop a bounding box to a target width/height ratio, keeping its centre.
+ * The area a sheet covers, as a rotated rectangle.
  *
- * The map viewport and the sheet rarely share a shape: the window might be tall
- * and the paper landscape. Sampling the whole viewport onto a page-shaped grid
- * stretches the terrain, and leaves the drawing showing a different region from
- * the one that was framed. Cropping first means the sheet is exactly a
- * page-shaped piece of what is on screen.
+ * A bounding box cannot describe a rotated map: turn the map and the box of the
+ * visible area is both larger than what is on screen and the wrong shape. The
+ * sheet is instead described by three of its corners, which is enough, because
+ * the mapping from screen pixels to projected coordinates is an affine one -
+ * a translation, a scale and a rotation. Interpolating between the corners is
+ * therefore exact rather than an approximation, at any bearing.
  *
- * The comparison has to happen in projected space. A degree of longitude is much
- * shorter than a degree of latitude away from the equator, so comparing the two
- * in degrees would crop to the wrong shape by a factor of cos(latitude) - about
- * 0.77 at Serra da Estrela.
- *
- * @param {object} bbox   - {west, south, east, north}
- * @param {number} aspect - desired width divided by height
+ * @param {object} corners - {nw, ne, sw}, each {lng, lat}
  */
-export function cropBboxToAspect(bbox, aspect) {
-  if (!(aspect > 0)) throw new Error('Aspect ratio must be positive');
+export function createRegion({ nw, ne, sw }) {
+  const originX = lngToTileX(nw.lng, 0);
+  const originY = latToTileY(nw.lat, 0);
 
-  const west = lngToTileX(bbox.west, 0);
-  const east = lngToTileX(bbox.east, 0);
-  const north = latToTileY(bbox.north, 0);
-  const south = latToTileY(bbox.south, 0);
+  // Edge vectors, in projected units, spanning the full width and height.
+  const ux = lngToTileX(ne.lng, 0) - originX;
+  const uy = latToTileY(ne.lat, 0) - originY;
+  const vx = lngToTileX(sw.lng, 0) - originX;
+  const vy = latToTileY(sw.lat, 0) - originY;
 
-  const centreX = (west + east) / 2;
-  const centreY = (north + south) / 2;
-
-  let halfWidth = (east - west) / 2;
-  let halfHeight = (south - north) / 2;
-
-  // Only ever shrink, so the result stays inside what the viewport shows.
-  if (halfWidth / halfHeight > aspect) {
-    halfWidth = halfHeight * aspect;
-  } else {
-    halfHeight = halfWidth / aspect;
+  const determinant = ux * vy - uy * vx;
+  if (Math.abs(determinant) < 1e-18) {
+    throw new Error('Region corners are collinear; it has no area');
   }
 
-  return {
-    west: tileXToLng(centreX - halfWidth, 0),
-    east: tileXToLng(centreX + halfWidth, 0),
-    north: tileYToLat(centreY - halfHeight, 0),
-    south: tileYToLat(centreY + halfHeight, 0),
+  // Tiles still have to be fetched over an axis-aligned box, so a rotated sheet
+  // covers more of them than it draws.
+  const xs = [originX, originX + ux, originX + vx, originX + ux + vx];
+  const ys = [originY, originY + uy, originY + vy, originY + uy + vy];
+  const bbox = {
+    west: tileXToLng(Math.min(...xs), 0),
+    east: tileXToLng(Math.max(...xs), 0),
+    north: tileYToLat(Math.min(...ys), 0),
+    south: tileYToLat(Math.max(...ys), 0),
   };
+
+  return {
+    corners: { nw, ne, sw },
+    bbox,
+
+    /** Where a field sample falls on the Earth. */
+    toLngLat(fieldWidth, fieldHeight, x, y) {
+      const s = x / fieldWidth;
+      const t = y / fieldHeight;
+      return {
+        lng: tileXToLng(originX + ux * s + vx * t, 0),
+        lat: tileYToLat(originY + uy * s + vy * t, 0),
+      };
+    },
+
+    /** Where a place on the Earth falls in the field. */
+    fromLngLat(fieldWidth, fieldHeight, lng, lat) {
+      const px = lngToTileX(lng, 0) - originX;
+      const py = latToTileY(lat, 0) - originY;
+      return {
+        x: ((px * vy - py * vx) / determinant) * fieldWidth,
+        y: ((ux * py - uy * px) / determinant) * fieldHeight,
+      };
+    },
+  };
+}
+
+/** A north-up region covering a bounding box. */
+export function regionFromBbox(bbox) {
+  return createRegion({
+    nw: { lng: bbox.west, lat: bbox.north },
+    ne: { lng: bbox.east, lat: bbox.north },
+    sw: { lng: bbox.west, lat: bbox.south },
+  });
 }

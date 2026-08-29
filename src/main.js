@@ -13,7 +13,7 @@ import { requestRender, isCancellation, cancelPending } from './renderService';
 import { drawPreview, formatMetrics } from './preview';
 import { parseGpx } from './gpx/parse';
 import { createPage } from './core/page';
-import { cropBboxToAspect } from './dem/tileMath';
+
 
 window.addEventListener('error', logError);
 
@@ -96,40 +96,50 @@ function pageSettings() {
 }
 
 /**
- * The region the sheet will actually cover.
+ * The sheet, described by where it sits on screen and what that covers.
  *
- * The map viewport and the sheet rarely share a shape, so the viewport is cropped
- * to the sheet's proportions about its centre. Without this the drawing shows a
- * different region from the one that was framed, and stretches it to fit.
+ * Working from the screen rectangle rather than from map bounds settles two
+ * things at once. The sheet is the right shape, because the rectangle is given
+ * the paper's proportions. And it is at the right angle, because unprojecting
+ * its corners follows whatever bearing the map is at: a bounding box cannot
+ * express a rotated view, and asking for one turns a rotated sheet back to
+ * north-up while quietly enlarging it.
  */
-function currentBounds() {
-  const bounds = map.getBounds();
-  const viewport = {
-    west: bounds.getWest(),
-    south: bounds.getSouth(),
-    east: bounds.getEast(),
-    north: bounds.getNorth(),
-  };
-
+function currentSheet() {
   const { drawable } = createPage(pageSettings());
-  return cropBboxToAspect(viewport, drawable.width / drawable.height);
-}
+  const aspect = drawable.width / drawable.height;
 
-/** Where that region sits on screen, so the preview can be laid over it. */
-function boundsToScreenRect(bbox) {
-  const topLeft = map.project([bbox.west, bbox.north]);
-  const bottomRight = map.project([bbox.east, bbox.south]);
+  const viewWidth = window.innerWidth;
+  const viewHeight = window.innerHeight;
+
+  // Largest rectangle of the paper's shape that fits the window.
+  let width = viewWidth;
+  let height = width / aspect;
+  if (height > viewHeight) {
+    height = viewHeight;
+    width = height * aspect;
+  }
+  const x = (viewWidth - width) / 2;
+  const y = (viewHeight - height) / 2;
+
+  const at = (px, py) => {
+    const p = map.unproject([px, py]);
+    return { lng: p.lng, lat: p.lat };
+  };
+
   return {
-    x: topLeft.x,
-    y: topLeft.y,
-    width: bottomRight.x - topLeft.x,
-    height: bottomRight.y - topLeft.y,
+    screenRect: { x, y, width, height },
+    corners: {
+      nw: at(x, y),
+      ne: at(x + width, y),
+      sw: at(x, y + height),
+    },
   };
 }
 
-function buildRequest(bbox) {
+function buildRequest(corners) {
   return {
-    bbox,
+    regionCorners: corners,
     sourceId: appState.demSource,
     detail: Number(appState.detail),
     algorithm: appState.algorithm,
@@ -169,6 +179,16 @@ function buildRequest(bbox) {
       penLiftTime: Number(appState.penLiftTime),
     },
     background: appState.includeBackground ? appState.paperColor : null,
+    compass: {
+      show: appState.showCompass,
+      radius: Number(appState.compassRadius),
+      corner: appState.compassCorner,
+      color: appState.compassColor,
+      width: Number(appState.compassPenWidth),
+      // Read from the map rather than from state, so it is whatever the sheet
+      // was actually framed at.
+      bearing: map.getBearing(),
+    },
     title: appState.mapName || 'peak map',
   };
 }
@@ -194,12 +214,12 @@ function updateMap() {
   appState.error = null;
   appState.renderProgress = { message: 'Starting', fraction: 0 };
 
-  // Captured now, so the preview lands where the region was when it was framed
+  // Captured now, so the preview lands where the sheet was when it was framed
   // even if the map has moved on by the time the render finishes.
-  const bbox = currentBounds();
-  const target = boundsToScreenRect(bbox);
+  const sheet = currentSheet();
+  const target = sheet.screenRect;
 
-  requestRender(buildRequest(bbox), (progress) => {
+  requestRender(buildRequest(sheet.corners), (progress) => {
     appState.renderProgress = progress;
   })
     .then((result) => {

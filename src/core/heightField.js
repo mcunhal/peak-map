@@ -26,7 +26,7 @@ export function isNoData(value) {
  * @param {Float32Array} options.data - row-major, length width*height
  * @param {object} [options.bbox] - geographic extent {west,south,east,north}
  */
-export function createHeightField({ width, height, data, bbox = null }) {
+export function createHeightField({ width, height, data, bbox = null, region = null }) {
   if (!(width > 0) || !(height > 0)) {
     throw new Error('Height field needs a positive width and height');
   }
@@ -41,6 +41,9 @@ export function createHeightField({ width, height, data, bbox = null }) {
     height,
     data,
     bbox,
+    // How field coordinates relate to the Earth. Carries the sheet's rotation,
+    // which a bounding box cannot express.
+    region,
 
     get(x, y) {
       if (x < 0 || y < 0 || x >= width || y >= height) return NODATA;

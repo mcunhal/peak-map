@@ -133,63 +133,84 @@ describe('lngLatToField', () => {
   });
 });
 
-describe('cropBboxToAspect', () => {
-  // Serra da Estrela: a viewport wider than it is tall.
+describe('createRegion', () => {
   const bbox = { west: -8.0, south: 40.1, east: -7.2, north: 40.6 };
 
-  const projected = (b) => ({
-    width: lngToTileX(b.east, 0) - lngToTileX(b.west, 0),
-    height: latToTileY(b.south, 0) - latToTileY(b.north, 0),
-  });
-
-  it('produces the requested ratio in projected space', async () => {
-    const { cropBboxToAspect } = await import('./tileMath');
-    for (const aspect of [0.5, 1, 297 / 210, 2.4]) {
-      const p = projected(cropBboxToAspect(bbox, aspect));
-      expect(p.width / p.height).toBeCloseTo(aspect, 9);
+  it('agrees with the north-up mapping it replaces', async () => {
+    const { regionFromBbox } = await import('./tileMath');
+    const region = regionFromBbox(bbox);
+    for (const [x, y] of [[0, 0], [100, 0], [0, 100], [37, 63], [100, 100]]) {
+      const a = region.toLngLat(100, 100, x, y);
+      const b = fieldToLngLat(bbox, 100, 100, x, y);
+      expect(a.lng).toBeCloseTo(b.lng, 12);
+      expect(a.lat).toBeCloseTo(b.lat, 12);
     }
   });
 
-  it('keeps the centre of the viewport', async () => {
-    const { cropBboxToAspect } = await import('./tileMath');
-    const out = cropBboxToAspect(bbox, 1);
-    expect((out.west + out.east) / 2).toBeCloseTo((bbox.west + bbox.east) / 2, 6);
-    const midY = (latToTileY(bbox.north, 0) + latToTileY(bbox.south, 0)) / 2;
-    const outMidY = (latToTileY(out.north, 0) + latToTileY(out.south, 0)) / 2;
-    expect(outMidY).toBeCloseTo(midY, 9);
-  });
-
-  it('only ever shrinks, so the crop stays on screen', async () => {
-    const { cropBboxToAspect } = await import('./tileMath');
-    for (const aspect of [0.3, 1, 5]) {
-      const out = cropBboxToAspect(bbox, aspect);
-      expect(out.west).toBeGreaterThanOrEqual(bbox.west - 1e-9);
-      expect(out.east).toBeLessThanOrEqual(bbox.east + 1e-9);
-      expect(out.south).toBeGreaterThanOrEqual(bbox.south - 1e-9);
-      expect(out.north).toBeLessThanOrEqual(bbox.north + 1e-9);
+  it('round-trips a point through the field and back', async () => {
+    const { regionFromBbox } = await import('./tileMath');
+    const region = regionFromBbox(bbox);
+    for (const [x, y] of [[0, 0], [25, 75], [100, 100], [13.5, 61.25]]) {
+      const { lng, lat } = region.toLngLat(100, 100, x, y);
+      const back = region.fromLngLat(100, 100, lng, lat);
+      expect(back.x).toBeCloseTo(x, 9);
+      expect(back.y).toBeCloseTo(y, 9);
     }
   });
 
-  it('leaves a box that already has the ratio alone', async () => {
-    const { cropBboxToAspect } = await import('./tileMath');
-    const p = projected(bbox);
-    const out = cropBboxToAspect(bbox, p.width / p.height);
-    expect(out.west).toBeCloseTo(bbox.west, 9);
-    expect(out.north).toBeCloseTo(bbox.north, 9);
+  it('round-trips just as exactly when the sheet is rotated', async () => {
+    const { createRegion, lngToTileX, latToTileY, tileXToLng, tileYToLat } =
+      await import('./tileMath');
+
+    // Build a sheet turned 30 degrees, directly in projected space.
+    const cx = lngToTileX(-7.6, 0);
+    const cy = latToTileY(40.35, 0);
+    const a = (30 * Math.PI) / 180;
+    const halfW = 0.0008;
+    const halfH = 0.0005;
+    const corner = (sx, sy) => ({
+      lng: tileXToLng(cx + sx * halfW * Math.cos(a) - sy * halfH * Math.sin(a), 0),
+      lat: tileYToLat(cy + sx * halfW * Math.sin(a) + sy * halfH * Math.cos(a), 0),
+    });
+    const region = createRegion({
+      nw: corner(-1, -1),
+      ne: corner(1, -1),
+      sw: corner(-1, 1),
+    });
+
+    for (const [x, y] of [[0, 0], [200, 0], [0, 140], [200, 140], [83, 57]]) {
+      const { lng, lat } = region.toLngLat(200, 140, x, y);
+      const back = region.fromLngLat(200, 140, lng, lat);
+      expect(back.x).toBeCloseTo(x, 8);
+      expect(back.y).toBeCloseTo(y, 8);
+    }
   });
 
-  it('does not confuse degrees with projected distance', async () => {
-    const { cropBboxToAspect } = await import('./tileMath');
-    // At 40 degrees north a degree of longitude is about 0.77 of a degree of
-    // latitude, so a naive crop in degrees is wrong by that factor.
-    const square = cropBboxToAspect(bbox, 1);
-    const degreeWidth = square.east - square.west;
-    const degreeHeight = square.north - square.south;
-    expect(degreeWidth / degreeHeight).toBeGreaterThan(1.2);
+  it('reports a bounding box that contains a rotated sheet', async () => {
+    const { createRegion } = await import('./tileMath');
+    const region = createRegion({
+      nw: { lng: -7.7, lat: 40.4 },
+      ne: { lng: -7.4, lat: 40.5 },
+      sw: { lng: -7.75, lat: 40.2 },
+    });
+    // Every corner, including the implied fourth, must lie inside the box.
+    for (const [x, y] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const { lng, lat } = region.toLngLat(1, 1, x, y);
+      expect(lng).toBeGreaterThanOrEqual(region.bbox.west - 1e-9);
+      expect(lng).toBeLessThanOrEqual(region.bbox.east + 1e-9);
+      expect(lat).toBeGreaterThanOrEqual(region.bbox.south - 1e-9);
+      expect(lat).toBeLessThanOrEqual(region.bbox.north + 1e-9);
+    }
   });
 
-  it('rejects a nonsensical aspect', async () => {
-    const { cropBboxToAspect } = await import('./tileMath');
-    expect(() => cropBboxToAspect(bbox, 0)).toThrow(/aspect/i);
+  it('needs a region with area', async () => {
+    const { createRegion } = await import('./tileMath');
+    expect(() =>
+      createRegion({
+        nw: { lng: 0, lat: 0 },
+        ne: { lng: 1, lat: 0 },
+        sw: { lng: 2, lat: 0 },
+      })
+    ).toThrow(/collinear|area/i);
   });
 });

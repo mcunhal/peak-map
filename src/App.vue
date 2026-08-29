@@ -180,6 +180,21 @@
           </div>
         </div>
 
+        <div class='row'>
+          <div class='col'>Compass</div>
+          <div class='col c-2'>
+            <input type='checkbox' v-model='showCompass'>
+            <select v-model='compassCorner' :disabled='!showCompass'>
+              <option v-for='c in compassCorners' :value='c' :key='c'>{{c}}</option>
+            </select>
+            <input type='number' step='1' min='4' max='40' v-model='compassRadius' :disabled='!showCompass'>
+          </div>
+        </div>
+        <div class='row' v-if='showCompass'>
+          <div class='col'></div>
+          <div class='col c-2 hint'>Drawn as strokes, and turns with the map so north stays north.</div>
+        </div>
+
         <h3>GPX routes</h3>
         <div class='row'>
           <div class='col'>Add files</div>
@@ -307,6 +322,8 @@ const RENDER_INPUTS = [
   'hatchAngle', 'hatchSpacing', 'hatchLevels',
   'paper', 'orientation', 'margin', 'terrainPenColor', 'terrainPenWidth',
   'includeBackground', 'paperColor',
+  'showCompass', 'compassRadius', 'compassCorner', 'compassColor', 'compassPenWidth',
+  'angle',
   'trackMode',
   'optimizeDedup', 'optimizeMerge', 'optimizeSimplify', 'optimizeSort', 'optimizeReloop',
   'dedupTolerance', 'mergeTolerance', 'simplifyTolerance',

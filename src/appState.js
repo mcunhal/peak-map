@@ -45,6 +45,14 @@ const appState = {
   terrainPenColor: '#161616',
   terrainPenWidth: 0.25,
 
+  // --- compass -----------------------------------------------------------
+  showCompass: true,
+  compassRadius: 12,
+  compassCorner: 'bottom-right',
+  compassCorners: ['bottom-right', 'bottom-left', 'top-right', 'top-left'],
+  compassColor: '#161616',
+  compassPenWidth: 0.35,
+
   // --- gpx ---------------------------------------------------------------
   tracks: [],
   trackMode: 'dotted',
