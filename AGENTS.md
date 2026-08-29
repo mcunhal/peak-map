@@ -201,7 +201,24 @@ informative way.
 ## Things deliberately not done
 
 - G-code, HPGL and machine-specific backends. Output is generic layered SVG.
-- OpenTopography and Copernicus GLO-30. Needs a key, GeoTIFF decoding, and probably
-  a CORS proxy. This is the one substantial feature from the design still missing.
+- **OpenTopography and Copernicus GLO-30. Measured, and not worth building.**
+  COP30 is more accurate than SRTM, by roughly one to five metres. On an A3 sheet
+  of Serra da Estrela the relief maps 1742m of elevation onto 26mm of paper, which
+  is 15 microns per metre of height, so that whole accuracy gain is 0.015 to
+  0.075mm: under a third of a 0.25mm pen. Measured high-frequency detail in the
+  current data averages 2.1m, which is 0.031mm on paper. None of it is drawable.
+
+  It would not help where data *is* the limit either. Below about 3km across, a
+  30m sample covers more than a third of a millimetre of paper and stair-steps,
+  but COP30 is also 30m.
+
+  Terrarium is not plain SRTM, and is already better than COP30 in places: 3DEP at
+  10m over the United States, ArcticDEM at 5m above 60 degrees north, EUDEM plus
+  national data across Europe, UK at 2m.
+
+  What would actually improve close-up maps is national LiDAR: Spain publishes
+  MDT02 at 2m (PNOA, free for non-commercial use via CNIG) and Portugal publishes
+  0.5m and 2m DTM under CC BY 4.0 via DGT. That is 15 to 60 times finer, and it is
+  the only thing that changes what a pen can draw at small scales.
 - 2-opt path refinement. The sort interface is open for it.
 - National high-resolution DEM services.
