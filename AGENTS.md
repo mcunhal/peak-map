@@ -296,6 +296,25 @@ informative way.
   untouched, and reports what fraction of the sheet the tiles actually cover.
   What remains is only the plumbing: a file input, and a source entry.
 
+  **Logging in from the app itself does not work, and it was worth checking.**
+  Per-visitor login would be perfectly sound in principle: each person using
+  their own account leaks nothing, and is how any OAuth app behaves. Keycloak
+  refuses it. The client is `aai-oidc-dgt` and its only registered redirect is
+  `https://cdd.dgterritorio.gov.pt/auth/callback`; an authorization request
+  naming any other origin answers 400, while the registered one answers with the
+  login form. The redirect-free route is closed too: a direct grant answers
+  `unauthorized_client`, which is about the client rather than the credentials,
+  so the flow is either disabled or needs a secret a public page cannot hold.
+  Only DGT can change this, by registering another redirect URI.
+
+  One possibility is untested and cheap to try: the object store already answers
+  cross-origin requests with `Access-Control-Allow-Credentials: true` and
+  reflects whatever origin asks. So a visitor already signed in at the CDD site
+  might be able to have this page fetch a tile with `credentials: 'include'`.
+  Whether the cookie travels depends on its SameSite and domain, which cannot be
+  determined without a session. Worth attempting with a fall back to a file the
+  visitor supplies, rather than assuming either way.
+
   The authentication, for whoever writes the fetcher, is Keycloak at
   `auth.cdd.dgterritorio.gov.pt/realms/dgterritorio`, an ordinary authorization
   code flow whose session cookie then authorises the object store directly. There
