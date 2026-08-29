@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "peak-map",
+  "compatibility_date": "2025-04-01",
+
+  // A static-assets-only Worker: there is no `main`, because there is no
+  // server-side code to run. The whole pipeline — tiles, line generation, the
+  // optimizer, the SVG — happens in the browser, in a Web Worker.
+  //
+  // That matters for cost as well as simplicity. Requests to static assets are
+  // free and unlimited, and with no `main` and no `run_worker_first` there is
+  // nothing here that can invoke a billable Worker request at all.
+  //
+  // It also matters for feasibility: rendering a dense sheet takes seconds of
+  // CPU, which is far past what a Worker request is allowed. Keeping the work on
+  // the client is not a compromise, it is the only place it fits.
+  "assets": {
+    "directory": "./dist",
+    // The app is a single page and reads its region from the URL hash, so any
+    // path should land on it rather than 404.
+    "not_found_handling": "single-page-application"
+  }
+
+  // No custom domain yet. Add one when you want it:
+  // "routes": [{ "pattern": "peak-map.example.com", "custom_domain": true }]
+}
