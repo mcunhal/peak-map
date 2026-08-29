@@ -16,7 +16,9 @@
  */
 import { ridgeline } from './ridgeline';
 import { contours, contourLevels, tanakaClasses, shadeWeightedClasses, chooseLevels } from './contours';
-import { computeGradient, computeHillshade } from '../derived';
+import { computeGradient, computeHillshade, computeSlope } from '../derived';
+import { evenlySpacedStreamlines } from './streamlines';
+import { hachures, hillshadeHatching } from './hachures';
 
 export const ALGORITHMS = {
   ridgeline: {
@@ -86,6 +88,82 @@ export const ALGORITHMS = {
         weight: group.weight,
         polylines: group.polylines,
       }));
+    },
+  },
+
+  streamlines: {
+    id: 'streamlines',
+    name: 'Streamlines (Jobard & Lefer)',
+    description:
+      'Evenly-spaced strokes following the slope downhill, so the drawing reads as drainage and spurs.',
+    planar: true,
+    defaults: { separation: 5, mode: 'slope', stepSize: 0.5, minLength: 4 },
+    run(field, options) {
+      return [
+        {
+          name: 'streamlines',
+          weight: 1,
+          polylines: evenlySpacedStreamlines(computeGradient(field), options),
+        },
+      ];
+    },
+  },
+
+  'streamlines-contour': {
+    id: 'streamlines-contour',
+    name: 'Streamlines along the hillside',
+    description:
+      'The same even spacing, but following the perpendicular: contour-like strokes at even spacing rather than at fixed elevations.',
+    planar: true,
+    defaults: { separation: 5, mode: 'contour', stepSize: 0.5, minLength: 4 },
+    run(field, options) {
+      return [
+        {
+          name: 'streamlines-contour',
+          weight: 1,
+          polylines: evenlySpacedStreamlines(computeGradient(field), {
+            ...options,
+            mode: 'contour',
+          }),
+        },
+      ];
+    },
+  },
+
+  hachures: {
+    id: 'hachures',
+    name: 'Hachures',
+    description:
+      'Short strokes down the slope, longer and denser where the ground is steeper. Level ground is left blank.',
+    planar: true,
+    defaults: { separation: 4, minStroke: 1.5, maxStroke: 7, gap: 2.5 },
+    run(field, options) {
+      const gradient = computeGradient(field);
+      return [
+        {
+          name: 'hachures',
+          weight: 1,
+          polylines: hachures(gradient, computeSlope(gradient), options),
+        },
+      ];
+    },
+  },
+
+  'hillshade-hatching': {
+    id: 'hillshade-hatching',
+    name: 'Hillshade hatching',
+    description:
+      'Straight parallel rules whose local density follows a hillshade, rendering tone rather than structure.',
+    planar: true,
+    defaults: { angle: 45, spacing: 2, levels: 4, azimuth: 315, zFactor: 3 },
+    run(field, options) {
+      const shade = computeHillshade(computeGradient(field), {
+        azimuth: options.azimuth,
+        zFactor: options.zFactor,
+      });
+      return [
+        { name: 'hatching', weight: 1, polylines: hillshadeHatching(shade, options) },
+      ];
     },
   },
 };
