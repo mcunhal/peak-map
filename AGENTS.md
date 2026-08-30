@@ -36,10 +36,10 @@ because dense algorithms take seconds.
 
 | Path | What lives there |
 |---|---|
-| `src/core/` | Pure pipeline. Height fields, page, occlusion, layers, optimizer, SVG writer, compass. `composite.js` chooses and combines the algorithms, flat or draped. `clip.js` cuts polylines against the page edge and against keep-out shapes. |
+| `src/core/` | Pure pipeline. Height fields, page, occlusion, layers, optimizer, SVG writer, compass. `dash.js` holds the line-style presets and draws them as geometry. `composite.js` chooses and combines the algorithms, flat or draped. `clip.js` cuts polylines against the page edge and against keep-out shapes. |
 | `src/core/algorithms/` | The eight terrain-to-line algorithms, behind one registry interface. |
 | `src/dem/` | Tile math, elevation source registry, height-field construction. Plus the Portugal LiDAR path: `ptLidarGrid` (grid formula + TM06), `ptLidarCatalog` (public STAC search), `ptLidarRaster` / `rasterMosaic` (GeoTIFF to height field), `lidarCache` (bucket + dropped files), `resolution` (pen-vs-data). |
-| `src/gpx/` | GPX parsing. |
+| `src/gpx/` | GPX parsing, and `trackFiles.js`: routes grouped by source file, with per-section style overrides. |
 | `src/worker/` | The render worker: tiles in, SVG out. It owns no drawing logic. |
 | `src/main.js` | Map wiring, request building, preview. |
 | `src/App.vue` | The whole UI. Vue 2 SFC, one file. |
@@ -183,10 +183,46 @@ path carries its own `stroke` and `stroke-width` rather than inheriting from its
 layer group (simple viewers do not implement inheritance and render blank); never
 a fill; never `stroke-dasharray`. Tests assert all of it.
 
+**A line style is geometry, never `stroke-dasharray`.** `core/dash.js` holds the
+four presets and `dashAlong`, which cuts a run into marks along its arc length.
+`scene.js` keeps `dotsAlong` as well, and the two are not interchangeable:
+`dotsAlong` clips every mark at the end of the polyline segment it starts in,
+which is invisible at a 0.3mm dot and ruinous at a 1.8mm dash, because a GPX
+track recorded every few metres has segments shorter than the dash on paper. A
+solid track's hidden run still goes through `dotsAlong`, which is what keeps a
+default sheet byte-identical.
+
+Patterns are millimetres and convert in `composite.js` like every other size. A
+pattern passed through in millimetres shrinks with the detail slider.
+
+Gaps must stay well clear of `mergeTolerance` — 0.15mm by default against a
+smallest gap of 0.8mm. Raise merge tolerance past the gap and the optimizer
+joins every dash back into a solid line with nothing to say it did.
+
+A mark is measured by its **arc length**, not by its first segment. `dashAlong`
+carries a mark around a corner, so a dash straddling a track vertex comes back
+with three points and a first segment far shorter than the dash: measuring that
+segment reads 0.17mm for a correct 1.8mm mark, which looks exactly like the
+millimetre bug above. A test measuring the wrong thing here cost real time.
+
+**A file is the unit, not a segment.** `parseGpx` returns one entry per track
+segment; `gpx/trackFiles.js` groups them under the file they came from, which is
+what a person actually names and colours. A section inherits its file's style
+until it overrides a key, then holds it until reset, so a file-level change never
+disturbs something set by hand. The palette advances per file.
+
+**The SVG has one layer per pen, not one per section.** A plotter does a pen
+change per layer, so a twenty-segment ride in one colour is one layer. Sections
+merge on colour and width alone — a dash is geometry by then, not a pen — and the
+label lists the files that contributed. The layer list therefore does not map
+one-to-one onto files; the panel is where the file grouping shows. Measured on
+two real rides: 22 segments across two files came out as two route layers.
+`scene.js` passes `fileName` through untouched so the label can be built.
+
 ## Running things
 
 ```bash
-npm test          # 579 tests, offline, ~3s
+npm test          # 620 tests, offline, ~3s
 npm run dev
 npm run deploy    # builds and pushes to Cloudflare
 ```

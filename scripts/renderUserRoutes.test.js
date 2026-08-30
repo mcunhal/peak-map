@@ -18,6 +18,7 @@ import { createPage, createPageMapper } from '../src/core/page';
 import { buildLayers } from '../src/core/layers';
 import { writeSvg } from '../src/core/svgWriter';
 import { optimizeLayers, measurePlot } from '../src/core/optimize';
+import { LINE_STYLES } from '../src/core/dash';
 
 const GPX_DIR = process.env.GPX_DIR;
 const OUT = process.env.SAMPLE_DIR || '.';
@@ -40,19 +41,23 @@ it.skipIf(!GPX_DIR)('renders real routes over real terrain', async () => {
 
   // One pen per file, not per segment. A day's ride arrives as a dozen segments
   // because the recorder paused; they are one route to anyone reading the map.
+  // `buildLayers` now does that grouping itself, from the resolved pens, so the
+  // only thing wanted here is a `fileName` on every track.
   const tracks = [];
   const fileOfTrack = [];
-  const fileNames = [];
   files.forEach((file, fileIndex) => {
     const name = file.replace(/\.gpx$/i, '');
     const parsed = parseGpx(readFileSync(join(GPX_DIR, file), 'utf8'), name);
+    // Give the first file a dashed style, so a guarded run exercises a real line
+    // style against real GPX rather than only against synthetic terrain.
+    const lineStyle = fileIndex === 0 ? 'dashed' : 'solid';
     for (const track of parsed) {
-      tracks.push(track);
+      tracks.push({ ...track, fileName: name, lineStyle });
       fileOfTrack.push(fileIndex);
     }
-    fileNames.push(name);
     console.log(
-      `GPX ${file.padEnd(24)} segments=${parsed.length} points=${parsed.reduce((n, t) => n + t.points.length, 0)}`
+      `GPX ${file.padEnd(24)} segments=${parsed.length} style=${lineStyle} ` +
+        `points=${parsed.reduce((n, t) => n + t.points.length, 0)}`
     );
   });
 
@@ -94,29 +99,16 @@ it.skipIf(!GPX_DIR)('renders real routes over real terrain', async () => {
     width: 0.55,
   }));
 
-  /** Fold the per-segment layers back into one layer per file. */
-  function groupByFile(layers) {
-    const terrain = layers.filter((l) => !l.id.startsWith('route-'));
-    const routes = layers.filter((l) => l.id.startsWith('route-'));
-    const byFile = new Map();
-
-    routes.forEach((layer, i) => {
-      const fileIndex = fileOfTrack[i] ?? 0;
-      const existing = byFile.get(fileIndex);
-      if (existing) {
-        existing.polylines.push(...layer.polylines);
-      } else {
-        byFile.set(fileIndex, {
-          ...layer,
-          id: 'route-' + fileNames[fileIndex].toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          label: fileNames[fileIndex],
-          polylines: [...layer.polylines],
-        });
-      }
-    });
-
-    return [...terrain, ...byFile.values()];
-  }
+  // This drives `renderRidgelineScene` directly rather than through
+  // `composite.js`, so the millimetre-to-sample conversion that boundary does
+  // has to happen here too. A pattern left in millimetres would draw dashes
+  // scaled by whatever the field resolution happens to be.
+  const styled = tracks.map((track) => {
+    const pattern = LINE_STYLES[track.lineStyle] || null;
+    return pattern
+      ? { ...track, pattern: pattern.map((mm) => mm / mapper.scale) }
+      : track;
+  });
 
   // 1. Ridge lines, routes riding the terrain, dotted where they pass behind a ridge.
   const scene = renderRidgelineScene(field, {
@@ -125,19 +117,17 @@ it.skipIf(!GPX_DIR)('renders real routes over real terrain', async () => {
     smoothSteps: 2,
     occlude: true,
     oceanLevel: 0,
-    tracks,
+    tracks: styled,
     trackMode: 'dotted',
     dotPitch: 2.0,
     dotLength: 0.65,
   });
 
   const ridgeLayers = optimizeLayers(
-    groupByFile(
-      buildLayers(scene, mapper, {
-        terrainPen: { color: '#161616', width: 0.22 },
-        trackPens,
-      })
-    ),
+    buildLayers(scene, mapper, {
+      terrainPen: { color: '#161616', width: 0.22 },
+      trackPens,
+    }),
     optimizeOptions
   );
   const ridgeMetrics = measurePlot(ridgeLayers, machine);
@@ -160,7 +150,7 @@ it.skipIf(!GPX_DIR)('renders real routes over real terrain', async () => {
     rowCount: 1,
     heightScale: 0,
     occlude: false,
-    tracks,
+    tracks: styled,
     trackMode: 'visible',
   });
 
@@ -173,9 +163,7 @@ it.skipIf(!GPX_DIR)('renders real routes over real terrain', async () => {
         penWidth: 0.2,
         polylines: contourGroups[0].polylines.map((l) => mapper.polylineToMm(l)),
       },
-      ...groupByFile(
-        buildLayers({ terrain: [], tracks: flat.tracks }, mapper, { trackPens })
-      ),
+      ...buildLayers({ terrain: [], tracks: flat.tracks }, mapper, { trackPens }),
     ],
     optimizeOptions
   );

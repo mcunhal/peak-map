@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildTerrainLayers } from './composite';
+import { optimizeLayers } from './optimize';
 import { createPage, createPageMapper } from './page';
 import { createHeightField } from './heightField';
 import { listAlgorithms } from './algorithms/index';
@@ -297,6 +298,32 @@ describe('buildTerrainLayers', () => {
         pens: { tracks: [{ color: '#c1272d', width: 0.5 }] },
       });
       expect(layers.find((l) => l.id.startsWith('route')).polylines).toHaveLength(1);
+    });
+
+    it('leaves the dashes in a styled route after optimization', () => {
+      // merge rejoins endpoints within mergeTolerance. The smallest gap in the
+      // presets is 0.8mm against a 0.15mm default, so the dashes must survive.
+      const { mapper } = setup(field);
+      const layers = buildTerrainLayers({
+        field,
+        mapper,
+        algorithmIds: ['ridgeline'],
+        algorithmOptions: { rowCount: 20, heightScale: 20, smoothSteps: 0 },
+        tracks: [{
+          name: 'r', fileName: 'a.gpx', lineStyle: 'dashed',
+          points: trackAlongRow(field, 30).points,
+        }],
+        trackMode: 'visible',
+        pens: { tracks: [{ color: '#c1272d', width: 0.5 }] },
+      });
+
+      const before = layers.find((l) => l.id.startsWith('route')).polylines.length;
+      const after = optimizeLayers(layers, {
+        dedupTolerance: 0.05, mergeTolerance: 0.15, simplifyTolerance: 0.08,
+      }).find((l) => l.id.startsWith('route')).polylines.length;
+
+      expect(before).toBeGreaterThan(5);
+      expect(after).toBe(before);
     });
   });
 });
