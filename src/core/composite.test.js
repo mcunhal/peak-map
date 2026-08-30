@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildTerrainLayers } from './composite';
 import { createPage, createPageMapper } from './page';
 import { createHeightField } from './heightField';
+import { listAlgorithms } from './algorithms/index';
 import { gaussianHill } from './testFields';
 import { fieldToLngLat } from '../dem/tileMath';
 
@@ -235,5 +236,98 @@ describe('buildTerrainLayers', () => {
 
       expect(layers.some((l) => l.id.startsWith('route'))).toBe(true);
     });
+  });
+});
+
+/**
+ * A coastal sheet: deep seabed left of `COAST_X`, land rising to the right.
+ *
+ * Terrarium carries real bathymetry, so this is what a coastal sheet actually
+ * is — off Iberia the lowest sample is 5246m of Atlantic against a 3436m
+ * summit. A hill on its own cannot show any of this, which is why every earlier
+ * fixture missed it.
+ */
+const COAST_X = 54;
+
+function coastalField(width = 120, height = 120) {
+  const data = new Float32Array(width * height);
+  const coast = COAST_X / (width - 1);
+  for (let y = 0; y < height; ++y) {
+    for (let x = 0; x < width; ++x) {
+      const t = x / (width - 1);
+      data[y * width + x] =
+        t < coast
+          ? -5246 * (1 - t / coast) - 1
+          : 3436 *
+            ((t - coast) / (1 - coast)) *
+            (0.6 + 0.4 * Math.sin((y / (height - 1)) * Math.PI * 2));
+    }
+  }
+  return createHeightField({ width, height, data });
+}
+
+/** Leftmost millimetre any layer puts ink on, and how much ink there is. */
+function leftmostInk(layers) {
+  let min = Infinity;
+  let points = 0;
+  for (const layer of layers) {
+    for (const line of layer.polylines) {
+      for (let i = 0; i < line.length; i += 2) {
+        points += 1;
+        if (line[i] < min) min = line[i];
+      }
+    }
+  }
+  return { min, points };
+}
+
+describe('the ocean level', () => {
+  const field = coastalField();
+  const { mapper } = setup(field);
+  const coastMm = mapper.toMm(COAST_X, 0)[0];
+
+  const options = {
+    oceanLevel: 0,
+    rowCount: 20,
+    heightScale: 20,
+    smoothSteps: 0,
+    count: 10,
+    separation: 3,
+    spacing: 2,
+  };
+
+  const ids = listAlgorithms().map((a) => a.id);
+
+  // One setting has to mean the same thing to all eight. The ridge lines cut at
+  // the coast on their own; everything reached through `computeGradient` drew
+  // the seabed, because a gradient knows only about nodata.
+  it.each(ids)('draws no %s on the water', (id) => {
+    const layers = buildTerrainLayers({
+      field,
+      mapper,
+      algorithmIds: [id],
+      algorithmOptions: options,
+    });
+
+    const { min, points } = leftmostInk(layers);
+    expect(points).toBeGreaterThan(0);
+    // A sample of tolerance: the coast falls between samples, not on one.
+    expect(min).toBeGreaterThan(coastMm - mapper.scale);
+  });
+
+  it('takes the contour interval from the land, not from the seabed', () => {
+    // 3431m of land over 10 contours asks for a 500m step. Measured against the
+    // whole 8682m range, ocean floor included, it asks for 1000m and draws half
+    // the contours the sheet was set to.
+    const layers = buildTerrainLayers({
+      field,
+      mapper,
+      algorithmIds: ['contours-by-level'],
+      algorithmOptions: options,
+    });
+
+    const levels = layers.map((l) => Number(l.id.replace('contour-', '')));
+    expect(levels.length).toBeGreaterThan(2);
+    expect([...new Set(levels.slice(1).map((v, i) => v - levels[i]))]).toEqual([500]);
   });
 });

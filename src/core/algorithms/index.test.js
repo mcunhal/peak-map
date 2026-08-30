@@ -113,3 +113,21 @@ describe('algorithms differ from one another', () => {
     expect(groupLength(fine)).toBeGreaterThan(groupLength(coarse));
   });
 });
+
+describe('the two algorithms lit by a hillshade', () => {
+  // Tanaka and the hatching both render the same hillshade, and the app sends
+  // them one sun. They must exaggerate it by the same amount too, or the same
+  // light produces two different reliefs on one sheet.
+  const lit = ['tanaka', 'hillshade-hatching'];
+
+  it('declare the same vertical exaggeration', () => {
+    const [a, b] = lit.map((id) => ALGORITHMS[id].defaults.zFactor);
+    expect(a).toBe(b);
+  });
+
+  it.each(lit)('declares %s exaggeration in its defaults, not inline', (id) => {
+    // A fallback buried in `run` cannot be seen, overridden by the defaults
+    // table, or reported to the UI. Tanaka hid a `?? 4` there.
+    expect(ALGORITHMS[id].defaults.zFactor).toBeGreaterThan(0);
+  });
+});

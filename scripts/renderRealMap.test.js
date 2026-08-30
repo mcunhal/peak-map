@@ -13,6 +13,7 @@ import { computeRange } from '../src/core/heightField';
 import { renderRidgelineScene } from '../src/core/scene';
 import { renderTerrain, ALGORITHMS } from '../src/core/algorithms/index';
 import { createPage, createPageMapper } from '../src/core/page';
+import { buildTerrainLayers } from '../src/core/composite';
 import { buildLayers } from '../src/core/layers';
 import { writeSvg } from '../src/core/svgWriter';
 import { optimizeLayers, measurePlot } from '../src/core/optimize';
@@ -131,5 +132,108 @@ it.skipIf(!enabled)('renders Serra da Estrela from real Terrarium tiles', async 
         `time=${(m.seconds / 60).toFixed(1)}min`
     );
     expect(m.penDownMm).toBeGreaterThan(0);
+  }
+}, 240000);
+
+/**
+ * The Lisbon coast, where the seabed is real and deep.
+ *
+ * This is the sheet that exposed the ocean bug: Terrarium carries bathymetry, so
+ * the lowest sample here is Atlantic floor, not ground. The ridge lines stopped
+ * at the shore while the hachures, both streamline modes and the hillshade
+ * hatching drew the seabed, because everything they see arrives through
+ * `computeGradient`, which knows only about nodata.
+ *
+ * Synthetic terrain shows this too, in `composite.test.js`. Only a real coast
+ * proves the bathymetry is as deep as the fix assumes.
+ */
+const COAST_BBOX = { west: -10.2, south: 38.4, east: -9.2, north: 39.1 };
+
+/**
+ * A small tile budget on purpose, which forces zoom 10.
+ *
+ * Terrarium only carries the deep bathymetry at low zoom: the same box gives
+ * -4850m at z10 and -8m at z11, because the shallower pyramid levels flatten the
+ * sea. So a zoomed-in coastal sheet has an ocean about ten metres deep, and only
+ * a zoomed-out one has the five kilometres that wrecked the elevation range.
+ * The sea still gets *drawn* at every zoom, which is the visible half of the bug;
+ * this fixture is chosen to carry the other half too.
+ */
+const COAST_TILE_BUDGET = 16;
+
+it.skipIf(!enabled)('keeps every algorithm off the water on a real coast', async () => {
+  const loadTile = createNodeTileLoader();
+
+  const { field, missingTiles } = await buildHeightField({
+    source: DEM_SOURCES.terrarium,
+    bbox: COAST_BBOX,
+    fieldWidth: 700,
+    fieldHeight: 500,
+    tileBudget: COAST_TILE_BUDGET,
+    loadTile,
+  });
+
+  expect(missingTiles).toBe(0);
+
+  const wet = computeRange(field);
+  const dry = computeRange(field, { floor: 0 });
+  console.log(
+    `COAST all samples min=${wet.minHeight.toFixed(0)}m max=${wet.maxHeight.toFixed(0)}m | ` +
+      `land only min=${dry.minHeight.toFixed(0)}m max=${dry.maxHeight.toFixed(0)}m`
+  );
+
+  // The fixture is only worth anything if deep sea and real land are both in it.
+  expect(wet.minHeight).toBeLessThan(-1000);
+  expect(dry.minHeight).toBeGreaterThan(0);
+  expect(dry.maxHeight).toBeGreaterThan(300);
+
+  const page = createPage({ paper: 'A4', orientation: 'landscape', margin: 10 });
+  const mapper = createPageMapper(page, field);
+
+  /** Whether the ground under a page position is land. */
+  const isLand = (xMm, yMm) => {
+    const x = Math.round((xMm - mapper.offsetX) / mapper.scale);
+    const y = Math.round((yMm - mapper.offsetY) / mapper.scale);
+    return field.get(
+      Math.min(field.width - 1, Math.max(0, x)),
+      Math.min(field.height - 1, Math.max(0, y))
+    ) > 0;
+  };
+
+  for (const id of Object.keys(ALGORITHMS)) {
+    const layers = buildTerrainLayers({
+      field,
+      mapper,
+      algorithmIds: [id],
+      algorithmOptions: {
+        oceanLevel: 0,
+        rowCount: 60,
+        heightScale: 20,
+        smoothSteps: 2,
+        count: 12,
+      },
+    });
+
+    let onWater = 0;
+    let total = 0;
+    for (const layer of layers) {
+      for (const line of layer.polylines) {
+        for (let i = 0; i < line.length; i += 2) {
+          total += 1;
+          if (!isLand(line[i], line[i + 1])) onWater += 1;
+        }
+      }
+    }
+
+    const fraction = total ? onWater / total : 0;
+    console.log(
+      `COAST ${id.padEnd(20)} points=${String(total).padStart(6)} ` +
+        `on water=${(fraction * 100).toFixed(1)}%`
+    );
+
+    expect(total).toBeGreaterThan(0);
+    // Not zero: the relief lifts a ridge line clear of the column it belongs to,
+    // so its own ink legitimately stands over water further down the page.
+    expect(fraction).toBeLessThan(0.08);
   }
 }, 240000);

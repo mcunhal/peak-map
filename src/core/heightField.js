@@ -87,6 +87,39 @@ export function sheetRows(field) {
 }
 
 /**
+ * The same field with everything at or below `level` removed.
+ *
+ * The ocean is a property of the ground, not of one way of drawing it. Left as a
+ * per-algorithm option it has to be re-implemented eight times, and it was
+ * implemented twice: the ridge lines cut at the coast while the hachures,
+ * streamlines and hillshade hatching drew five kilometres of Atlantic seabed,
+ * because everything they see arrives through `computeGradient`, which knows only
+ * about nodata. Cutting the field once, at the boundary, is what makes one
+ * setting mean the same thing to all of them.
+ *
+ * Nodata is the right sentinel rather than a new one: every algorithm already
+ * handles it, which is exactly why this works without touching any of them.
+ */
+export function cutBelow(field, level) {
+  // No ocean set: hand back the same field rather than copying it for nothing.
+  if (!Number.isFinite(level)) return field;
+
+  const data = new Float32Array(field.data);
+  for (let i = 0; i < data.length; ++i) {
+    if (data[i] <= level) data[i] = NODATA;
+  }
+
+  return createHeightField({
+    width: field.width,
+    height: field.height,
+    data,
+    bbox: field.bbox,
+    region: field.region,
+    sheetHeight: field.sheetHeight,
+  });
+}
+
+/**
  * Elevation range over the samples that actually have data.
  *
  * `rowWithHighestPoint` is what the ridgeline iterator aligns its rows to, so the

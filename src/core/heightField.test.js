@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NODATA, createHeightField, computeRange } from './heightField';
+import { NODATA, createHeightField, computeRange, cutBelow } from './heightField';
 import { planeField, gaussianHill, coneField } from './testFields';
 
 describe('createHeightField', () => {
@@ -111,5 +111,53 @@ describe('computeRange over a floor', () => {
   it('still reports the row holding the highest point', () => {
     const range = computeRange(field([[-5000, -5000], [10, 900]]), { floor: 0 });
     expect(range.rowWithHighestPoint).toBe(1);
+  });
+});
+
+describe('cutBelow', () => {
+  const field = (values, extra = {}) =>
+    createHeightField({
+      width: values[0].length,
+      height: values.length,
+      data: Float32Array.from(values.flat()),
+      ...extra,
+    });
+
+  it('marks samples at or below the level as nodata', () => {
+    const cut = cutBelow(field([[-5000, 10], [0, 30]]), 0);
+    expect(cut.hasData(0, 0)).toBe(false);
+    expect(cut.hasData(0, 1)).toBe(false);
+    expect(cut.get(1, 0)).toBe(10);
+    expect(cut.get(1, 1)).toBe(30);
+  });
+
+  it('leaves the field alone when no level is given', () => {
+    const original = field([[-5000, 10]]);
+    expect(cutBelow(original, -Infinity)).toBe(original);
+    expect(cutBelow(original, undefined)).toBe(original);
+  });
+
+  it('does not write through to the field it was given', () => {
+    const original = field([[-5000, 10]]);
+    cutBelow(original, 0);
+    expect(original.get(0, 0)).toBe(-5000);
+  });
+
+  it('carries the sheet height, bbox and region across', () => {
+    const region = { marker: true };
+    const cut = cutBelow(
+      field([[-5000, 10], [20, 30]], { bbox: { west: 1, south: 2, east: 3, north: 4 }, region, sheetHeight: 1.5 }),
+      0
+    );
+    expect(cut.sheetHeight).toBe(1.5);
+    expect(cut.region).toBe(region);
+    expect(cut.bbox).toEqual({ west: 1, south: 2, east: 3, north: 4 });
+  });
+
+  it('leaves the range of the ground it kept', () => {
+    const cut = cutBelow(field([[-5000, 10], [20, 30]]), 0);
+    // The whole point: a range taken over the cut field needs no floor.
+    expect(computeRange(cut).minHeight).toBe(10);
+    expect(computeRange(cut).maxHeight).toBe(30);
   });
 });

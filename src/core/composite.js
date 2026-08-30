@@ -22,7 +22,7 @@
 import { renderRidgelineScene } from './scene';
 import { renderTerrain, getAlgorithm } from './algorithms/index';
 import { buildLayers } from './layers';
-import { sheetRows } from './heightField';
+import { sheetRows, cutBelow } from './heightField';
 
 /** Options the app supplies in millimetres, with the default each falls back to. */
 const MILLIMETRE_OPTIONS = {
@@ -49,7 +49,7 @@ const DEFAULT_PEN = { color: '#161616', width: 0.3 };
  * @returns {Array} plot-ready layers, in page millimetres
  */
 export function buildTerrainLayers({
-  field,
+  field: suppliedField,
   mapper,
   algorithmIds,
   algorithmOptions = {},
@@ -63,6 +63,23 @@ export function buildTerrainLayers({
   weightPasses = 3,
 }) {
   const ids = algorithmIds && algorithmIds.length ? algorithmIds : ['ridgeline'];
+
+  // The ocean is cut once, here, for the same reason sizes are converted here:
+  // it is a property of the ground, and every algorithm has to read it the same
+  // way. Left as an option each one honours for itself, only the ridge lines
+  // did — the hachures, streamlines and hillshade hatching all reach the field
+  // through `computeGradient`, which knows about nodata and nothing else, so
+  // they drew five kilometres of Atlantic seabed while the ridges stopped at
+  // the coast. Cutting the samples to nodata is what makes one setting mean the
+  // same thing to all eight, and it needs no change inside any of them.
+  //
+  // It also fixes the contour interval: `chooseLevels` divides the range by the
+  // contour count, and a range holding the ocean floor is two and a half times
+  // the range of the land, so the sheet got half the contours it was set to.
+  //
+  // The dimensions are untouched, so the page mapper the caller built from the
+  // original field still fits this one exactly.
+  const field = cutBelow(suppliedField, algorithmOptions.oceanLevel);
 
   // Every setting with a size arrives in millimetres and is converted here.
   //

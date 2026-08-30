@@ -20,6 +20,17 @@ import { computeGradient, computeHillshade, computeSlope } from '../derived';
 import { evenlySpacedStreamlines } from './streamlines';
 import { hachures, hillshadeHatching } from './hachures';
 
+/**
+ * Vertical exaggeration for every algorithm lit by a hillshade.
+ *
+ * Tanaka and the hatching render the same hillshade from the same sun, so they
+ * have to exaggerate it by the same amount or one light gives a sheet two
+ * different reliefs. They disagreed — 4 against 3 — because Tanaka's lived as a
+ * `?? 4` inside `run`, where the defaults table could not see it and the UI
+ * could not report it. One constant, read by both.
+ */
+const HILLSHADE_Z_FACTOR = 3;
+
 export const ALGORITHMS = {
   ridgeline: {
     id: 'ridgeline',
@@ -70,7 +81,13 @@ export const ALGORITHMS = {
     description:
       'Contours whose weight follows the light, so flat isolines read as relief.',
     planar: true,
-    defaults: { count: 25, azimuth: 315, classes: 3, useHillshade: true },
+    defaults: {
+      count: 25,
+      azimuth: 315,
+      classes: 3,
+      useHillshade: true,
+      zFactor: HILLSHADE_Z_FACTOR,
+    },
     run(field, options) {
       const { azimuth = 315, classes = 3, useHillshade = true } = options;
       const lines = contours(field, options);
@@ -78,7 +95,10 @@ export const ALGORITHMS = {
       const groups = useHillshade
         ? shadeWeightedClasses(
             lines,
-            computeHillshade(computeGradient(field), { azimuth, zFactor: options.zFactor ?? 4 }),
+            computeHillshade(computeGradient(field), {
+              azimuth,
+              zFactor: options.zFactor,
+            }),
             { classes }
           )
         : tanakaClasses(lines, { azimuth, classes });
@@ -155,7 +175,13 @@ export const ALGORITHMS = {
     description:
       'Straight parallel rules whose local density follows a hillshade, rendering tone rather than structure.',
     planar: true,
-    defaults: { angle: 45, spacing: 2, toneLevels: 4, azimuth: 315, zFactor: 3 },
+    defaults: {
+      angle: 45,
+      spacing: 2,
+      toneLevels: 4,
+      azimuth: 315,
+      zFactor: HILLSHADE_Z_FACTOR,
+    },
     run(field, options) {
       const shade = computeHillshade(computeGradient(field), {
         azimuth: options.azimuth,

@@ -50,6 +50,45 @@ because dense algorithms take seconds.
 
 Break any of these and something will look right while being wrong.
 
+**The ocean is cut at the boundary, not by each algorithm.** `composite.js` calls
+`cutBelow(field, oceanLevel)` once, before anything runs, and every algorithm then
+sees water as nodata — which they all already handle. Do not add an `oceanLevel`
+test inside an algorithm: that is how this broke. `ridgeline.js` and `scene.js`
+still carry theirs, because they are called directly too, but they are now
+redundant when the call came through `composite`.
+
+Left as a per-algorithm option, exactly one algorithm honoured it. Everything
+reached through `computeGradient` — hachures, both streamline modes, hillshade
+hatching — knows about nodata and nothing else, so on a coastal sheet the ridge
+lines stopped at the shore while the other four drew five kilometres of Atlantic
+seabed. Measured on an A4: ink 84mm to the left of where the coast actually
+falls, against 1.6mm for the ridge lines. It reads as the algorithms being
+misaligned with the map, and it is not a transform bug — they simply disagreed
+about where the land was. `contours` had the same bug in a quieter form:
+`chooseLevels` divides the range by the contour count, and a range holding the
+ocean floor is two and a half times the range of the land, so a sheet set to 10
+contours got 5 and its lowest line started 500m up the hill.
+
+**Terrarium's deep bathymetry only exists at low zoom.** The same box off Lisbon
+reads -4850m at z10 and -8m at z11: the shallower pyramid levels flatten the sea.
+So a zoomed-in coastal sheet has an ocean about ten metres deep, and only a
+zoomed-out one carries the five kilometres that wrecks the elevation range. Both
+halves of the bug are real, but they show up at different zooms — the sea is
+*drawn* at every zoom, while the range distortion needs z10 or below. A coastal
+fixture that does not pin `tileBudget` will silently test only the easy half; the
+guarded coast test in `scripts/renderRealMap.test.js` pins it to 16 for exactly
+this reason, and asserts the fixture is deep before asserting anything else.
+
+Worth knowing how bad it was: on that sheet the contour layer came out **empty**.
+The range including the seabed is 5346m, which over 12 contours gives a 500m step,
+and the highest land is 496m — so not one level fell on the land.
+
+**One light, one exaggeration.** Tanaka and the hillshade hatching both render a
+hillshade from the sun the app sends, so both read `HILLSHADE_Z_FACTOR` in
+`algorithms/index.js`. They disagreed — 4 against 3 — because Tanaka's lived as a
+`?? 4` inside `run`, where neither the defaults table nor the UI could see it. A
+default that is not in `defaults` is a default nobody can find.
+
 **Sizes are millimetres at the boundary, samples inside.** The app sends every
 size in millimetres; `core/composite.js` converts to field samples against
 `mapper.scale`, via `MILLIMETRE_OPTIONS`. Algorithms only ever see samples. If you
@@ -130,7 +169,7 @@ a fill; never `stroke-dasharray`. Tests assert all of it.
 ## Running things
 
 ```bash
-npm test          # 558 tests, offline, ~3s
+npm test          # 575 tests, offline, ~3s
 npm run dev
 npm run deploy    # builds and pushes to Cloudflare
 ```
@@ -156,6 +195,9 @@ fast. They are the fastest way to check real behaviour:
 
 ```bash
 REAL_DATA=1 SAMPLE_DIR=/tmp ./node_modules/.bin/vitest run scripts/renderRealMap.test.js
+# that file holds two: Serra da Estrela (inland, writes an SVG per algorithm) and
+# a real coastal sheet asserting no algorithm draws on the water. Add `-t "real
+# coast"` for the second alone.
 GPX_DIR=/path/to/gpx SAMPLE_DIR=/tmp ./node_modules/.bin/vitest run scripts/renderUserRoutes.test.js
 BENCH=1 ./node_modules/.bin/vitest run scripts/bench.test.js
 ```
