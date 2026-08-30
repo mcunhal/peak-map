@@ -119,3 +119,24 @@ describe('writeSvg', () => {
     expect(withBg).toContain('#F7F2E8');
   });
 });
+
+describe('attribution', () => {
+  const page = createPage({ paper: 'A5', margin: 5 });
+
+  it('is absent when nothing requires it', () => {
+    const svg = writeSvg({ page, layers: [] });
+    expect(svg).not.toContain('dc:rights');
+  });
+
+  it('travels with the drawing, as a comment and as dc:rights', () => {
+    const svg = writeSvg({ page, layers: [], attribution: 'Dados LiDAR: DGT, CC-BY-4.0' });
+    expect(svg).toContain('<!-- Dados LiDAR: DGT, CC-BY-4.0 -->');
+    expect(svg).toContain('<dc:rights>Dados LiDAR: DGT, CC-BY-4.0</dc:rights>');
+  });
+
+  it('cannot be made to break the comment it sits in', () => {
+    const svg = writeSvg({ page, layers: [], attribution: 'a -- b --' });
+    const comment = svg.match(/<!--[\s\S]*?-->/)[0];
+    expect(comment.slice(4, -3)).not.toContain('--');
+  });
+});

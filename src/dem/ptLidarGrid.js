@@ -143,6 +143,14 @@ export function tileBounds(name) {
  * @param {number} [limit] - refuse to enumerate more than this many
  */
 export function tilesForBbox(bbox, limit = 400) {
+  // A malformed box would otherwise produce NaN bounds and an empty list, which
+  // reads as "this sheet needs no tiles" rather than as the mistake it is.
+  for (const edge of ['west', 'south', 'east', 'north']) {
+    if (!Number.isFinite(bbox && bbox[edge])) {
+      throw new Error(`tilesForBbox needs a {west, south, east, north} bbox; ${edge} was not a number`);
+    }
+  }
+
   const corners = [
     lngLatToTM06(bbox.west, bbox.south),
     lngLatToTM06(bbox.east, bbox.south),

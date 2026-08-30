@@ -84,7 +84,15 @@ function writeLayer(layer) {
  *   Off by default: a plotter does not draw it, and it only gets in the way.
  * @param {string} [options.title]
  */
-export function writeSvg({ page, layers = [], background = null, title = null }) {
+const RDF_NS = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
+const DC_NS = 'http://purl.org/dc/elements/1.1/';
+
+/** A comment cannot contain `--`, and must not end with a dash. */
+function escapeComment(text) {
+  return String(text).replace(/--+/g, '-').replace(/-$/, '');
+}
+
+export function writeSvg({ page, layers = [], background = null, title = null, attribution = null }) {
   const width = num(page.widthMm);
   const height = num(page.heightMm);
 
@@ -97,6 +105,17 @@ export function writeSvg({ page, layers = [], background = null, title = null })
       `viewBox="0 0 ${width} ${height}">`
   );
   if (title) parts.push(`  <title>${escapeAttr(title)}</title>`);
+  // Some data carries an attribution requirement, and a plotted sheet outlives
+  // the page that made it. Both a comment and dc:rights, so it survives
+  // whichever of the two a downstream tool preserves.
+  if (attribution) {
+    parts.push(`  <!-- ${escapeComment(attribution)} -->`);
+    parts.push(
+      `  <metadata><rdf:RDF xmlns:rdf="${RDF_NS}" xmlns:dc="${DC_NS}">` +
+        `<rdf:Description><dc:rights>${escapeAttr(attribution)}</dc:rights>` +
+        `</rdf:Description></rdf:RDF></metadata>`
+    );
+  }
   if (background) {
     parts.push(
       `  <rect id="background" fill="${escapeAttr(background)}" ` +
