@@ -100,6 +100,10 @@ const appState = {
 
   // --- gpx ---------------------------------------------------------------
   trackFiles: [],
+  // Which GPX files are expanded to their sections. Panel state, like
+  // `settingsOpen`: it is deliberately absent from RENDER_INPUTS and from the
+  // worker request, so opening a file redraws nothing.
+  expanded: {},
   trackMode: 'dotted',
   trackModes: ['dotted', 'hidden', 'visible'],
 

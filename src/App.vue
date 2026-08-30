@@ -256,22 +256,41 @@
           <div class='col'>Add files</div>
           <div class='col c-2'><input type='file' accept='.gpx' multiple @change='onGpxChosen'></div>
         </div>
-        <div class='row' v-for='(track, i) in tracks' :key="'track' + i">
-          <div class='col track-name'>{{track.name}}</div>
-          <div class='col c-2'>
-            <input type='color' v-model='track.color'>
-            <input type='number' step='0.05' v-model='track.width' min='0.05' max='2'>
-            <a href='#' @click.prevent='removeTrack(i)'>remove</a>
+        <template v-for='file in trackFiles'>
+          <div class='row' :key='file.id'>
+            <div class='col track-name'>
+              <a href='#' class='disclosure' @click.prevent='toggleFile(file.id)'>{{expanded[file.id] ? '▾' : '▸'}}</a>
+              {{file.name}}
+            </div>
+            <div class='col c-2'>
+              <input type='color' v-model='file.style.color'>
+              <input type='number' step='0.05' v-model.number='file.style.width' min='0.05' max='2'>
+              <select v-model='file.style.lineStyle'>
+                <option v-for='s in lineStyles' :value='s' :key='s'>{{s}}</option>
+              </select>
+              <a href='#' @click.prevent='removeFile(file.id)'>remove</a>
+            </div>
           </div>
-        </div>
-        <div class='row' v-if="tracks.length && trackMode === 'dotted'">
-          <div class='col'>Dot pitch / length (mm)</div>
-          <div class='col c-2'>
-            <input type='number' step='0.1' min='0.2' max='6' v-model='dotPitch'>
-            <input type='number' step='0.05' min='0.05' max='3' v-model='dotLength'>
+
+          <div class='row section' v-for='section in (expanded[file.id] ? file.sections : [])' :key='section.id'>
+            <div class='col track-name section-name'>{{section.name}}</div>
+            <div class='col c-2'>
+              <input type='color'
+                     :value='styleOf(file, section).color'
+                     @input='override(section, "color", $event.target.value)'>
+              <input type='number' step='0.05' min='0.05' max='2'
+                     :value='styleOf(file, section).width'
+                     @input='override(section, "width", Number($event.target.value))'>
+              <select :value='styleOf(file, section).lineStyle'
+                      @change='override(section, "lineStyle", $event.target.value)'>
+                <option v-for='s in lineStyles' :value='s' :key='s'>{{s}}</option>
+              </select>
+              <a href='#' v-if='hasOverride(section)' @click.prevent='resetSection(section)'>reset</a>
+            </div>
           </div>
-        </div>
-        <div class='row' v-if='tracks.length'>
+        </template>
+
+        <div class='row' v-if='trackFiles.length'>
           <div class='col'>Behind a ridge</div>
           <div class='col c-2'>
             <select v-model='trackMode'>
@@ -379,6 +398,8 @@
 
 <script>
 import appState from './appState';
+import { resolveStyle } from './gpx/trackFiles';
+import { LINE_STYLE_IDS } from './core/dash';
 import Loading from './components/Loading.vue';
 import FindBounds from './components/FindBounds.vue';
 import EditableLabel from './components/EditableLabel.vue';
@@ -393,7 +414,7 @@ const RENDER_INPUTS = [
   'separation', 'contourInterval', 'contourCount', 'sunAzimuth', 'tanakaClasses',
   'hatchAngle', 'hatchSpacing', 'hatchLevels',
   'paper', 'orientation', 'margin', 'terrainPenColor', 'terrainPenWidth',
-  'includeBackground', 'paperColor', 'dotPitch', 'dotLength',
+  'includeBackground', 'paperColor',
   'hachureMinStroke', 'hachureMaxStroke', 'hachureGap',
   'weightMode', 'weightPasses',
   'showCompass', 'compassRadius', 'compassCorner', 'compassColor', 'compassPenWidth',
@@ -430,9 +451,10 @@ export default {
     this.unwatch = RENDER_INPUTS.map((key) =>
       this.$watch(key, () => { if (this.shouldDraw) this.scheduleRender(); })
     );
-    // Pen colour and width are per track, so they need their own deep watch.
+    // Pen, width and line style live inside each file and its sections, so they
+    // need their own deep watch.
     this.unwatch.push(
-      this.$watch('tracks', () => { if (this.shouldDraw) this.scheduleRender(); }, { deep: true })
+      this.$watch('trackFiles', () => { if (this.shouldDraw) this.scheduleRender(); }, { deep: true })
     );
     this.unwatch.push(
       this.$watch('algorithmPens', () => { if (this.shouldDraw) this.scheduleRender(); }, { deep: true })
@@ -453,6 +475,9 @@ export default {
   },
 
   computed: {
+    lineStyles() {
+      return LINE_STYLE_IDS;
+    },
     mainActionText() {
       return this.shouldDraw ? 'Show the map' : 'Draw this region';
     },
@@ -529,6 +554,25 @@ export default {
       this.renderTimer = setTimeout(() => this.updateMap(), 250);
     },
 
+    toggleFile(id) {
+      // Vue 2 cannot see a plain key added to an object.
+      this.$set(this.expanded, id, !this.expanded[id]);
+    },
+    styleOf(file, section) {
+      return resolveStyle(file, section);
+    },
+    hasOverride(section) {
+      return Object.keys(section.override).length > 0;
+    },
+    override(section, key, value) {
+      this.$set(section.override, key, value);
+    },
+    resetSection(section) {
+      for (const key of Object.keys(section.override)) this.$delete(section.override, key);
+    },
+    removeFile(id) {
+      appState.removeTrackFile(id);
+    },
     onGpxChosen(event) {
       const files = Array.from(event.target.files || []);
       if (files.length) appState.addGpxFiles(files);
@@ -927,4 +971,8 @@ a {
     bottom: 8px;
   }
 }
+
+.settings-form .row.section { opacity: 0.9; }
+.settings-form .section-name { padding-left: 1.5em; font-size: 0.9em; }
+.settings-form .disclosure { text-decoration: none; margin-right: 0.4em; }
 </style>
