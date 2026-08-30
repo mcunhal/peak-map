@@ -459,3 +459,55 @@ describe('renderRidgelineScene draping', () => {
     ).not.toThrow();
   });
 });
+
+describe('drawing a track in its own style', () => {
+  const visible = (n) =>
+    Array.from({ length: n }, (_, i) => ({ x: i, y: 0, visible: true }));
+
+  it('leaves a solid track whole', () => {
+    expect(splitByVisibility(visible(5), 'dotted', 0.9, 0.3, null)).toEqual([
+      [0, 0, 1, 0, 2, 0, 3, 0, 4, 0],
+    ]);
+  });
+
+  it('cuts a visible run into the pattern it was given', () => {
+    const out = splitByVisibility(visible(11), 'dotted', 0.9, 0.3, [2, 2]);
+    expect(out.map((l) => [l[0], l[l.length - 2]])).toEqual([[0, 2], [4, 6], [8, 10]]);
+  });
+
+  it('draws a hidden run of a styled track sparser, not differently', () => {
+    // 12 points, the second half hidden.
+    const points = Array.from({ length: 13 }, (_, i) => ({
+      x: i, y: 0, visible: i <= 6,
+    }));
+    const out = splitByVisibility(points, 'dotted', 0.9, 0.3, [2, 2]);
+
+    // The hidden half is the same 2-long mark, with the gap doubled to 4.
+    const hidden = out.map((l) => [l[0], l[l.length - 2]]).filter(([s]) => s >= 6);
+    for (const [start, end] of hidden) expect(end - start).toBeCloseTo(2, 6);
+  });
+
+  it('still dots a hidden run when the track is solid, exactly as before', () => {
+    // The default sheet must not change: no pattern means the old path.
+    const points = Array.from({ length: 13 }, (_, i) => ({
+      x: i, y: 0, visible: i <= 6,
+    }));
+    expect(splitByVisibility(points, 'dotted', 0.9, 0.3, null)).toEqual(
+      splitByVisibility(points, 'dotted', 0.9, 0.3)
+    );
+  });
+
+  it('applies the style to an always-visible track too', () => {
+    // 'visible' mode used to return the run whole regardless of style.
+    const out = splitByVisibility(visible(11), 'visible', 0.9, 0.3, [2, 2]);
+    expect(out.length).toBeGreaterThan(1);
+  });
+
+  it('draws nothing hidden when the mode says hide, styled or not', () => {
+    const points = Array.from({ length: 13 }, (_, i) => ({
+      x: i, y: 0, visible: i <= 6,
+    }));
+    const out = splitByVisibility(points, 'hidden', 0.9, 0.3, [2, 2]);
+    for (const line of out) expect(line[0]).toBeLessThanOrEqual(6);
+  });
+});

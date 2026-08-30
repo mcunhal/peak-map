@@ -18,6 +18,7 @@
  *      and hidden points.
  */
 import { computeRange, isNoData, sheetRows } from './heightField';
+import { dashAlong, sparsePattern } from './dash';
 import { createOcclusionBuffer } from './occlusion';
 import { createRowIterator, smoothPolyline } from './algorithms/ridgeline';
 import { regionFromBbox, regionRowScales } from '../dem/tileMath';
@@ -131,13 +132,20 @@ export function dotsAlong(points, pitch, dotLength) {
 /**
  * Walk a track in route order and cut it into drawable polylines according to the
  * visibility already decided for each point.
+ *
+ * `pattern` is the track's line style, in samples, or null for a solid line.
+ * A solid track keeps the original path exactly — including `dotsAlong` for its
+ * hidden run — which is what makes a sheet drawn with the defaults unchanged.
  */
-export function splitByVisibility(points, mode, dotPitch, dotLength) {
+export function splitByVisibility(points, mode, dotPitch, dotLength, pattern = null) {
   const out = [];
   if (points.length < 2) return out;
 
+  const styled = (run) =>
+    pattern ? dashAlong(run, pattern) : [run.flatMap((p) => [p.x, p.y])];
+
   if (mode === 'visible') {
-    out.push(points.flatMap((p) => [p.x, p.y]));
+    out.push(...styled(points));
     return out;
   }
 
@@ -150,9 +158,14 @@ export function splitByVisibility(points, mode, dotPitch, dotLength) {
       return;
     }
     if (runVisible) {
-      out.push(run.flatMap((p) => [p.x, p.y]));
+      out.push(...styled(run));
     } else if (mode === 'dotted') {
-      out.push(...dotsAlong(run, dotPitch, dotLength));
+      // A solid line has no gaps to widen, so it falls back to plain dots.
+      out.push(
+        ...(pattern
+          ? dashAlong(run, sparsePattern(pattern))
+          : dotsAlong(run, dotPitch, dotLength))
+      );
     }
     run = [];
   };
@@ -213,7 +226,7 @@ export function renderRidgelineScene(field, options = {}) {
   if (range.isEmpty) {
     return {
       terrain: [],
-      tracks: tracks.map((t) => ({ name: t.name, polylines: [] })),
+      tracks: tracks.map((t) => ({ name: t.name, fileName: t.fileName, polylines: [] })),
       drapes: drapes.map((d) => ({ id: d.id, polylines: [] })),
     };
   }
@@ -288,9 +301,14 @@ export function renderRidgelineScene(field, options = {}) {
 
   return {
     terrain,
+    // `fileName` rides along untouched: `layers.js` groups by pen and needs it to
+    // say which files fed a layer. The scene itself has no use for it.
     tracks: tracks.map((track, i) => ({
       name: track.name,
-      polylines: splitByVisibility(projected[i], trackMode, dotPitch, dotLength),
+      fileName: track.fileName,
+      polylines: splitByVisibility(
+        projected[i], trackMode, dotPitch, dotLength, track.pattern || null
+      ),
     })),
     // Draped linework has no dotted mode: a contour is either on the visible
     // face of the terrain or it is behind it, and drawing the hidden part as
