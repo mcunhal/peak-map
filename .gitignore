@@ -19,3 +19,17 @@ yarn-error.log*
 
 # wrangler local state
 .wrangler/
+
+# Local LiDAR tile cache. Tens of gigabytes of GeoTIFF, and reproducible from
+# the DGT catalogue — see AGENTS.md. The full mirror lives outside the repo.
+/.cache/
+
+# Browser captures from the DGT investigation. Never committed: a HAR of a
+# signed-in session carries the session cookie, and one of these carries the
+# login POST with the password in it. They are also ~230MB.
+/har/
+
+# Local scratch, kept on disk but not part of the project.
+/download_gpx.py
+/playwright_test.mjs
+/test_screenshot.png
