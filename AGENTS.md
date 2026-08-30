@@ -36,7 +36,7 @@ because dense algorithms take seconds.
 
 | Path | What lives there |
 |---|---|
-| `src/core/` | Pure pipeline. Height fields, page, occlusion, layers, optimizer, SVG writer, compass. `composite.js` chooses and combines the algorithms, flat or draped. |
+| `src/core/` | Pure pipeline. Height fields, page, occlusion, layers, optimizer, SVG writer, compass. `composite.js` chooses and combines the algorithms, flat or draped. `clip.js` cuts polylines against the page edge and against keep-out shapes. |
 | `src/core/algorithms/` | The eight terrain-to-line algorithms, behind one registry interface. |
 | `src/dem/` | Tile math, elevation source registry, height-field construction. Plus the Portugal LiDAR path: `ptLidarGrid` (grid formula + TM06), `ptLidarCatalog` (public STAC search), `ptLidarRaster` / `rasterMosaic` (GeoTIFF to height field), `lidarCache` (bucket + dropped files), `resolution` (pen-vs-data). |
 | `src/gpx/` | GPX parsing. |
@@ -56,6 +56,32 @@ size in millimetres; `core/composite.js` converts to field samples against
 add a size setting, add it to that table, or raising the detail will silently
 change how the map looks. This is exactly the bug that made relief fall from 74mm
 to 14mm as detail went 300 to 1600.
+
+**The sheet is drawn past its bottom edge, and cut off there.** The relief lifts
+a line up the page, so a peak on the near edge is raised clear of it and leaves
+blank paper beneath — 21mm of an A3 at Serra da Estrela, measured. `main.js`
+unprojects a screen rectangle that reaches below the sheet, and the extra rows
+are drawn and then clipped at `drawable` bottom in the worker.
+
+This is safe only because screen-to-ground is a homography and `createRegion`
+fits one through four corners: lengthening the rectangle re-parametrises the same
+map, so the sheet's own rows land on exactly the ground they did before.
+`tileMath.test.js` asserts it row by row. Two things must then follow the sheet
+rather than the field, and both are silent when wrong:
+
+- `createPageMapper` fits `field.sheetHeight`, not `field.height`, or the map
+  shrinks to make room for the over-plot instead of extending past it.
+- `regionRowScales` normalises at mid-*sheet*, and `composite.js` scales
+  `rowCount` by the same ratio. Otherwise extending the field rescales the whole
+  relief and thins the lines out, which is the millimetre bug below arriving from
+  the other direction.
+
+Everything asks `sheetRows(field)`, which falls back to `field.height`, so a
+field with no over-plot behaves exactly as it always did. The fraction is zero
+unless something actually lifts: a plan-view contour map would only sample ground
+it then throws away. **Note the over-plot band may fall outside the fetched LiDAR
+tiles**, since `LidarPanel` picks them from `appState.bounds` rather than the
+sheet; `rasterMosaic` tolerates the gap, so the bottom band simply will not fill.
 
 **The sheet is a projective region, not a bounding box.** `createRegion` in
 `src/dem/tileMath.js` maps the unit square onto four corners. A box cannot express
@@ -81,6 +107,17 @@ what makes ridge lines hide each other; and a second one marked from *every*
 field row, which is what drapes are tested against. Sharing one buffer looks
 right and is not — see the trap below.
 
+**The compass sits on cleared paper.** A rose drawn over ridge lines is
+unreadable, and a plotter cannot fill a disc behind it, so `compassCutout` builds
+a keep-out shape and every other layer is cut against it before the optimizer
+runs. Cutting afterwards would invalidate a plot path already sorted.
+
+The shape is the convex hull of the rose's own geometry, not a circle: the ring
+has radius 1 but the N stands clear above it and reaches 1.49, so a disc that
+covered the letter would blank a needless amount of paper on the other three
+sides. It goes through the *same* transform the rose does — `placeRose` is shared
+— so on a tilted sheet the cut-out is the same projected ellipse the rose is.
+
 **Multipass runs last.** Retracing a stroke looks exactly like a duplicate to
 `deduplicate`, which will remove it. Order in `optimizePolylines` is
 dedup → merge → sort → reloop → simplify → multipass.
@@ -93,7 +130,7 @@ a fill; never `stroke-dasharray`. Tests assert all of it.
 ## Running things
 
 ```bash
-npm test          # 517 tests, offline, ~3s
+npm test          # 558 tests, offline, ~3s
 npm run dev
 npm run deploy    # builds and pushes to Cloudflare
 ```
@@ -223,7 +260,7 @@ Removed — but the lesson is to check the stylesheet before believing a screens
 
 ## Test-writing traps
 
-Three test expectations in this repo were wrong while the code was right. All three
+Five test expectations in this repo were wrong while the code was right. Three
 had the same shape: a fixture that could not show the effect being asserted.
 
 - **Radially symmetric terrain hides directional effects.** A gaussian hill's
@@ -236,6 +273,14 @@ had the same shape: a fixture that could not show the effect being asserted.
   the nearest row occlude every row behind it, so the drawing was one line and
   the assertion measured nothing. Put the coast down the sheet rather than
   across it, and every row carries both the shore and the summit.
+- **A point on a polygon's boundary is not inside or outside it.** Ray casting is
+  undefined there and will answer either way. Two assertions were written against
+  it and both were wrong while the code was right: a convex hull's own vertices
+  lie on its boundary, and a clip lands its cut vertices exactly on it. Assert
+  what actually matters instead — for a convex ring, that the point is on the
+  inner side of every edge; for clipped geometry, that points sampled *along* each
+  stroke are outside, since ink is segments and a vertex touching the edge is
+  fine.
 - **Physical intuitions need checking against the algorithm.** Flooding a cone
   *reduces* line count, because a horizontal cut through a cone is one interval,
   not two. Occlusion is correctly a no-op until displacement outruns row spacing.

@@ -33,7 +33,8 @@ vpype, or anything else that reads SVG.
   before-and-after numbers and an estimated plot time.
 - **Rotate and tilt** the map; the drawing follows, including a true perspective
   view when tilted.
-- **A compass rose** drawn as strokes, which foreshortens with the sheet.
+- **A compass rose** drawn as strokes, which foreshortens with the sheet, and
+  sits on paper cleared of terrain so it stays readable.
 - **Portuguese LiDAR** at 50 cm and 2 m for close-ups, sixteen to sixty times
   finer than the global elevation data.
 
@@ -75,8 +76,16 @@ direction rather than height.
 
 ### Paper
 
-Size, orientation and margins, all in millimetres. **Paper opacity** is
-preview-only — turn it down to see your lines against the live map, which is the
+Size, orientation and margins, all in millimetres.
+
+The sheet is drawn slightly past its own bottom edge and then cut off there. The
+relief lifts a line up the page, so a peak sitting on the near edge is raised
+clear of it, and without the over-plot the paper beneath it comes out blank —
+around two centimetres of it on an A3 of Serra da Estrela. Ground nearer than the
+sheet is sampled and drawn to fill that in. It follows **Relief height**, which
+is exactly the furthest a line can rise, so there is nothing to set.
+
+**Paper opacity** is preview-only — turn it down to see your lines against the live map, which is the
 quickest way to check they landed where you meant. The exported file is governed
 by the separate **Sheet background** setting.
 

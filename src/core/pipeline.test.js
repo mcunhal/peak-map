@@ -3,6 +3,8 @@ import { createPage, createPageMapper } from './page';
 import { ridgeline } from './algorithms/ridgeline';
 import { writeSvg } from './svgWriter';
 import { gaussianHill } from './testFields';
+import { compassForPage, compassCutout } from './compass';
+import { subtractPolygon, pointInPolygon } from './clip';
 
 /**
  * End-to-end through the pure core: a height field becomes polylines, the polylines
@@ -132,5 +134,67 @@ describe('detail changes resolution, not appearance', () => {
     expect(middling).toBeCloseTo(coarse, 0);
     expect(fine).toBeCloseTo(coarse, 0);
     expect(Math.abs(fine - coarse) / coarse).toBeLessThan(0.05);
+  });
+});
+
+describe('the compass cut-out through the pipeline', () => {
+  const field = gaussianHill(300, 200, 900);
+  const page = createPage({ paper: 'A3', orientation: 'landscape', margin: 15 });
+  const mapper = createPageMapper(page, field);
+  const placement = { radius: 12, corner: 'bottom-right' };
+
+  const terrain = ridgeline(field, { rowCount: 40, heightScale: 60, occlude: true }).map(
+    (line) => mapper.polylineToMm(line)
+  );
+
+  it('leaves clean paper under the rose', () => {
+    const cutout = compassCutout(page, { ...placement, margin: 1.5 });
+    const cut = subtractPolygon(terrain, cutout);
+
+    // Something was actually removed, or the assertion below proves nothing.
+    const total = (lines) => lines.reduce((n, l) => n + l.length / 2, 0);
+    expect(total(cut)).toBeLessThan(total(terrain));
+
+    // Sampled along each stroke rather than at its vertices. A cut lands a
+    // vertex exactly on the boundary, where a crossing count is undefined and
+    // reports either answer; what matters is that no ink crosses the interior.
+    for (const line of cut) {
+      for (let i = 0; i + 3 < line.length; i += 2) {
+        for (const t of [0.25, 0.5, 0.75]) {
+          const x = line[i] + (line[i + 2] - line[i]) * t;
+          const y = line[i + 1] + (line[i + 3] - line[i + 1]) * t;
+          expect(pointInPolygon(cutout, x, y)).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('does not cut the rose itself', () => {
+    // The worker subtracts from the map layers and then appends the compass, so
+    // the rose is never its own victim.
+    const rose = compassForPage(page, placement);
+    const cutout = compassCutout(page, { ...placement, margin: 1.5 });
+    for (const line of rose) {
+      for (let i = 0; i < line.length; i += 2) {
+        expect(pointInPolygon(cutout, line[i], line[i + 1])).toBe(true);
+      }
+    }
+  });
+
+  it('cuts nothing anywhere else on the sheet', () => {
+    const cutout = compassCutout(page, { ...placement, margin: 1.5 });
+    const cut = subtractPolygon(terrain, cutout);
+
+    let xs = [];
+    for (let i = 0; i < cutout.length; i += 2) xs.push(cutout[i]);
+    const leftOfRose = Math.min(...xs);
+
+    const inkLeftOf = (lines) =>
+      lines.reduce((n, line) => {
+        for (let i = 0; i < line.length; i += 2) if (line[i] < leftOfRose - 1) n += 1;
+        return n;
+      }, 0);
+
+    expect(inkLeftOf(cut)).toBe(inkLeftOf(terrain));
   });
 });

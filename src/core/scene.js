@@ -17,7 +17,7 @@
  *   3. each track is then walked in route order and split into runs of visible
  *      and hidden points.
  */
-import { computeRange, isNoData } from './heightField';
+import { computeRange, isNoData, sheetRows } from './heightField';
 import { createOcclusionBuffer } from './occlusion';
 import { createRowIterator, smoothPolyline } from './algorithms/ridgeline';
 import { regionFromBbox, regionRowScales } from '../dem/tileMath';
@@ -219,7 +219,12 @@ export function renderRidgelineScene(field, options = {}) {
   const displacementPerMetre = heightRange > 0 ? heightScale / heightRange : 0;
 
   const { rows, spacing } = createRowIterator(rowCount, height);
-  const rowScale = regionRowScales(field.region, width, height);
+  // Normalised at the middle of the *sheet*, not of the field: over-plotting
+  // below the bottom edge makes the field taller, and normalising at its middle
+  // would rescale the whole relief as a side effect of extending it.
+  const rowScale = regionRowScales(field.region, width, height, {
+    normaliseRow: sheetRows(field) / 2,
+  });
   const buffer = occlude ? createOcclusionBuffer(width, height) : null;
 
   // Drapes are cut against the ground itself rather than against the strokes

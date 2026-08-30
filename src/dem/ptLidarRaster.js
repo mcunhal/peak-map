@@ -53,7 +53,13 @@ export async function readGeoTiff(bytes, { fromArrayBuffer }) {
  *   the rasters actually cover, which is worth showing rather than letting
  *   somebody wonder why half a drawing is missing.
  */
-export function buildHeightFieldFromRasters({ region, rasters, fieldWidth, fieldHeight }) {
+export function buildHeightFieldFromRasters({
+  region,
+  rasters,
+  fieldWidth,
+  fieldHeight,
+  sheetHeight = null,
+}) {
   if (!region) throw new Error('A region is required to place the rasters on a sheet');
   if (!(fieldWidth > 0) || !(fieldHeight > 0)) {
     throw new Error('Field dimensions must be positive');
@@ -65,7 +71,7 @@ export function buildHeightFieldFromRasters({ region, rasters, fieldWidth, field
   if (mosaic.count === 0) {
     data.fill(NODATA);
     return {
-      field: createHeightField({ width: fieldWidth, height: fieldHeight, data, region }),
+      field: createHeightField({ width: fieldWidth, height: fieldHeight, data, region, sheetHeight }),
       coverage: 0,
       tilesUsed: 0,
     };
@@ -86,7 +92,7 @@ export function buildHeightFieldFromRasters({ region, rasters, fieldWidth, field
   };
 
   return {
-    field: createHeightField({ width: fieldWidth, height: fieldHeight, data, region }),
+    field: createHeightField({ width: fieldWidth, height: fieldHeight, data, region, sheetHeight }),
     coverage: coverageOf(mosaic, toProjected, fieldWidth, fieldHeight),
     tilesUsed: mosaic.count,
   };

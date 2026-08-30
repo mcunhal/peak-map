@@ -9,7 +9,7 @@
  * Rows are walked from the bottom of the field upwards so that nearer ridges are
  * drawn first and can occlude the ones behind them.
  */
-import { computeRange, isNoData } from '../heightField';
+import { computeRange, isNoData, sheetRows } from '../heightField';
 import { createOcclusionBuffer } from '../occlusion';
 import { regionRowScales } from '../../dem/tileMath';
 
@@ -122,7 +122,9 @@ export function ridgeline(field, options = {}) {
   const displacementPerMetre = heightRange > 0 ? heightScale / heightRange : 0;
 
   const { rows } = createRowIterator(rowCount, height);
-  const rowScale = regionRowScales(field.region, width, height);
+  const rowScale = regionRowScales(field.region, width, height, {
+    normaliseRow: sheetRows(field) / 2,
+  });
   const buffer = occlude ? createOcclusionBuffer(width, height) : null;
   const out = [];
 

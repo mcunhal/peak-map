@@ -19,7 +19,8 @@ import { buildTerrainLayers } from '../core/composite';
 import { createPage, createPageMapper } from '../core/page';
 import { writeSvg } from '../core/svgWriter';
 import { optimizeLayers, measurePlot, compareMetrics, vpypeRecipe } from '../core/optimize';
-import { compassForPage } from '../core/compass';
+import { compassForPage, compassCutout } from '../core/compass';
+import { clipToBounds, subtractPolygon } from '../core/clip';
 
 let currentJob = 0;
 
@@ -66,6 +67,10 @@ async function render(request, progress, stillCurrent) {
     lidarTiles = [],
     // Hang the planar algorithms on the relief instead of drawing them flat.
     drape = false,
+    // How far past the bottom edge of the sheet to sample and draw, as a
+    // fraction of the drawable height. The caller extended `regionCorners` by
+    // the same fraction; see the note above `fieldHeight` below.
+    overplot = 0,
   } = request;
 
   // LiDAR replaces the tiled sources rather than supplementing them: when the
@@ -86,7 +91,27 @@ async function render(request, progress, stillCurrent) {
   // square and then squashed.
   const aspect = page.drawable.width / page.drawable.height;
   const fieldWidth = Math.round(aspect >= 1 ? detail : detail * aspect);
-  const fieldHeight = Math.round(aspect >= 1 ? detail / aspect : detail);
+  const sheetRowCount = Math.round(aspect >= 1 ? detail / aspect : detail);
+
+  /**
+   * Over-plot below the near edge.
+   *
+   * A peak sitting on the bottom row is lifted up the page by the relief, and
+   * the paper beneath it comes out blank, because there is no nearer ground to
+   * draw there. So the caller unprojects a screen rectangle that reaches past
+   * the sheet, and the extra rows are drawn and then cut off at the page edge.
+   *
+   * Screen-to-ground is a homography and `createRegion` fits one through four
+   * corners, so lengthening the rectangle re-parametrises the same map: row
+   * `sheetHeight` lands exactly where the old bottom row did, and nothing above
+   * it moves. That is what makes this safe to do to a finished sheet.
+   *
+   * `sheetHeight` is deliberately fractional. Rounding it to a whole row would
+   * put the sheet's edge a sample away from where the caller extended it.
+   */
+  const overplotFraction = Number.isFinite(overplot) ? Math.max(0, overplot) : 0;
+  const fieldHeight = Math.round(sheetRowCount * (1 + overplotFraction));
+  const sheetHeight = overplotFraction > 0 ? fieldHeight / (1 + overplotFraction) : null;
 
   let field, zoom = null, tileCount = 0, missingTiles = 0, lidarCoverage = null;
 
@@ -109,7 +134,13 @@ async function render(request, progress, stillCurrent) {
       if (!stillCurrent()) return null;
     }
 
-    const built = buildHeightFieldFromRasters({ region, rasters, fieldWidth, fieldHeight });
+    const built = buildHeightFieldFromRasters({
+      region,
+      rasters,
+      fieldWidth,
+      fieldHeight,
+      sheetHeight,
+    });
     field = built.field;
     tileCount = built.tilesUsed;
     lidarCoverage = built.coverage;
@@ -120,6 +151,7 @@ async function render(request, progress, stillCurrent) {
       region,
       fieldWidth,
       fieldHeight,
+      sheetHeight,
       loadTile: loadTilePixels,
       onProgress: ({ loaded, total, message }) =>
         progress(message, total ? (loaded / total) * 0.5 : 0),
@@ -209,12 +241,28 @@ async function render(request, progress, stillCurrent) {
       return (lx, ly) => groundToPage(gx + lx * groundRadius, gy + ly * groundRadius);
     };
 
-    const polylines = compassForPage(page, {
+    const placement = {
       radius: compass.radius,
       corner: compass.corner,
       project,
-    });
+    };
+
+    const polylines = compassForPage(page, placement);
     if (polylines.length) {
+      // Clean paper under the rose. A compass drawn on top of ridge lines is
+      // unreadable, and a plotter cannot fill a disc behind it, so the map is
+      // cut away instead. The cut-out goes through the same placement the rose
+      // does, which is what keeps the two agreeing on a tilted sheet where the
+      // rose is an ellipse rather than a circle.
+      const cutout = compassCutout(page, {
+        ...placement,
+        margin: Number.isFinite(compass.margin) ? compass.margin : 1.5,
+      });
+      layers = layers.map((layer) => ({
+        ...layer,
+        polylines: subtractPolygon(layer.polylines, cutout),
+      }));
+
       layers = layers.concat([
         {
           id: 'compass',
@@ -226,6 +274,23 @@ async function render(request, progress, stillCurrent) {
       ]);
     }
   }
+
+  // Cut the over-plot off at the near edge of the sheet.
+  //
+  // Only the bottom: a far ridge lifted above the top edge runs off the paper
+  // today, and clipping it here would change every sheet rather than only the
+  // ones this feature touches.
+  if (sheetHeight) {
+    const bottom = page.drawable.y + page.drawable.height;
+    layers = layers.map((layer) => ({
+      ...layer,
+      polylines: clipToBounds(layer.polylines, { maxY: bottom }),
+    }));
+  }
+
+  // Clipping empties a layer whose every stroke was under the rose, and an empty
+  // layer is a pen the plotter would be asked to select for nothing.
+  layers = layers.filter((layer) => layer.polylines.length > 0);
 
   if (!stillCurrent()) return null;
   progress('Optimizing plot path', 0.85);

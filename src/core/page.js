@@ -6,6 +6,7 @@
  * optimizer tolerances and pen widths mean something physical. Upstream worked in
  * browser pixels, so an export was only ever as large as the window.
  */
+import { sheetRows } from './heightField';
 
 /** ISO A series and a few common sizes, portrait, in millimetres. */
 export const PAPER_SIZES = {
@@ -69,17 +70,31 @@ export function createPage({ paper = 'A4', orientation = 'portrait', margin = 0 
 /**
  * Map field coordinates (samples) onto the page (millimetres), fitting the field
  * inside the drawable area without distorting it, and centring the slack.
+ *
+ * A field may be taller than the sheet. The bottom of the page is over-plotted:
+ * ground nearer than the sheet's own near edge is sampled and drawn, because a
+ * peak sitting on that edge is lifted up the page and would otherwise leave the
+ * paper beneath it blank. Those extra rows must fall *below* the drawable area
+ * rather than being squeezed into it, or over-plotting would silently shrink the
+ * map instead of extending it.
+ *
+ * So a field carrying `sheetHeight` is fitted by that many rows, and everything
+ * past it lands off the bottom, to be clipped away. It is a float, not a row
+ * count: the caller derives it from the same fraction the region was extended
+ * by, and rounding it to a whole row would move the sheet's edge by a sample.
  */
 export function createPageMapper(page, field) {
   if (!field || !field.width || !field.height) {
     throw new Error('Field must have a non-zero width and height');
   }
 
+  const sheetHeight = sheetRows(field);
+
   const { drawable } = page;
-  const scale = Math.min(drawable.width / field.width, drawable.height / field.height);
+  const scale = Math.min(drawable.width / field.width, drawable.height / sheetHeight);
 
   const drawnWidth = field.width * scale;
-  const drawnHeight = field.height * scale;
+  const drawnHeight = sheetHeight * scale;
   const offsetX = drawable.x + (drawable.width - drawnWidth) / 2;
   const offsetY = drawable.y + (drawable.height - drawnHeight) / 2;
 

@@ -224,8 +224,14 @@ export function regionFromBbox(bbox) {
  * height that was asked for.
  *
  * Returns null for a sheet with no perspective, where every row scales alike.
+ *
+ * `normaliseRow` is which row keeps the height that was asked for. It defaults
+ * to the middle of the field, and differs from it only when the field is taller
+ * than the sheet: over-plotting below the bottom edge adds rows, and normalising
+ * at the middle of the *field* would then quietly rescale the whole relief as a
+ * side effect of extending it.
  */
-export function regionRowScales(region, fieldWidth, fieldHeight) {
+export function regionRowScales(region, fieldWidth, fieldHeight, { normaliseRow } = {}) {
   if (!region || !region.perspective) return null;
 
   const midX = fieldWidth / 2;
@@ -242,7 +248,11 @@ export function regionRowScales(region, fieldWidth, fieldHeight) {
     scales[y] = ground > 0 ? 1 / ground : 0;
   }
 
-  const middle = scales[Math.floor(fieldHeight / 2)];
+  const row = Number.isFinite(normaliseRow)
+    ? Math.min(fieldHeight - 1, Math.max(0, Math.round(normaliseRow)))
+    : Math.floor(fieldHeight / 2);
+
+  const middle = scales[row];
   if (!(middle > 0)) return null;
   for (let y = 0; y < fieldHeight; ++y) scales[y] /= middle;
   return scales;

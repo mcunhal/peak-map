@@ -25,8 +25,17 @@ export function isNoData(value) {
  * @param {number} options.height - samples down
  * @param {Float32Array} options.data - row-major, length width*height
  * @param {object} [options.bbox] - geographic extent {west,south,east,north}
+ * @param {number} [options.sheetHeight] - how many rows land on the sheet, when
+ *   the field extends past it. See `sheetRows` below.
  */
-export function createHeightField({ width, height, data, bbox = null, region = null }) {
+export function createHeightField({
+  width,
+  height,
+  data,
+  bbox = null,
+  region = null,
+  sheetHeight = null,
+}) {
   if (!(width > 0) || !(height > 0)) {
     throw new Error('Height field needs a positive width and height');
   }
@@ -44,6 +53,8 @@ export function createHeightField({ width, height, data, bbox = null, region = n
     // How field coordinates relate to the Earth. Carries the sheet's rotation,
     // which a bounding box cannot express.
     region,
+    // Null unless the field runs past the bottom of the sheet; see `sheetRows`.
+    sheetHeight,
 
     get(x, y) {
       if (x < 0 || y < 0 || x >= width || y >= height) return NODATA;
@@ -55,6 +66,24 @@ export function createHeightField({ width, height, data, bbox = null, region = n
       return !isNoData(data[y * width + x]);
     },
   };
+}
+
+/**
+ * How many of a field's rows land on the sheet.
+ *
+ * The bottom of the page is over-plotted: ground nearer than the sheet's own
+ * near edge is sampled and drawn, so that a peak on that edge, which is lifted
+ * up the page, does not leave blank paper beneath it. Those rows are cut off at
+ * the page edge once drawn.
+ *
+ * Everything that has to know where the sheet actually ends — the page mapper,
+ * and the row that normalises perspective foreshortening — asks here, so a field
+ * without over-plot behaves exactly as it always did.
+ */
+export function sheetRows(field) {
+  return Number.isFinite(field.sheetHeight) && field.sheetHeight > 0
+    ? field.sheetHeight
+    : field.height;
 }
 
 /**

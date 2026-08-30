@@ -44,6 +44,8 @@ export async function loadTilePixels(url, { signal } = {}) {
  * @param {object} options.bbox        - {west, south, east, north}
  * @param {number} options.fieldWidth  - samples across
  * @param {number} options.fieldHeight - samples down
+ * @param {number} [options.sheetHeight] - how many of those rows land on the sheet,
+ *   when the field is extended below it; see `sheetRows` in core/heightField
  * @param {number} [options.zoom]      - forced zoom; otherwise chosen from the budget
  * @param {number} [options.tileBudget]
  * @param {Function} [options.loadTile] - (url, {signal}) => {width, height, data}
@@ -55,6 +57,7 @@ export async function buildHeightField({
   region: suppliedRegion = null,
   fieldWidth,
   fieldHeight,
+  sheetHeight = null,
   zoom = null,
   tileBudget = 64,
   loadTile = loadTilePixels,
@@ -149,6 +152,7 @@ export async function buildHeightField({
       // digits for no reason. A rotated region has no such box of its own.
       bbox: suppliedRegion ? coverage : bbox,
       region,
+      sheetHeight,
     }),
     zoom: chosenZoom,
     tileCount: range.count,

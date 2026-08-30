@@ -22,6 +22,7 @@
 import { renderRidgelineScene } from './scene';
 import { renderTerrain, getAlgorithm } from './algorithms/index';
 import { buildLayers } from './layers';
+import { sheetRows } from './heightField';
 
 /** Options the app supplies in millimetres, with the default each falls back to. */
 const MILLIMETRE_OPTIONS = {
@@ -74,6 +75,15 @@ export function buildTerrainLayers({
   const mm = (value, fallback) =>
     (Number.isFinite(value) ? value : fallback) * samplesPerMm;
 
+  // Line count is a count, not a size, and it is asked of the *sheet*. The
+  // field can be taller than the sheet, because the bottom edge is over-plotted
+  // so that a peak sitting on it does not leave the paper beneath it blank.
+  // Spreading the requested number of lines over the taller field would thin
+  // them out on the page — the same silent failure the millimetre table above
+  // exists to prevent, arriving from the other direction. Ask for enough lines
+  // to cover the whole field at the pitch the sheet was promised.
+  const overplotRatio = field.height / sheetRows(field);
+
   const trackDots = { dotPitch: mm(dotPitch, 0.9), dotLength: mm(dotLength, 0.3) };
 
   /** One algorithm's settings, with its own defaults underneath. */
@@ -86,6 +96,9 @@ export function buildTerrainLayers({
     }
 
     const options = { ...defaults, ...algorithmOptions, ...sized };
+    if (overplotRatio > 1 && Number.isFinite(options.rowCount)) {
+      options.rowCount = Math.round(options.rowCount * overplotRatio);
+    }
     // Integration step follows the separation, so it never needs its own setting.
     // An eighth keeps hachure cutting stable: a coarser step overshoots the gap
     // logic and triples the number of strokes.

@@ -13,6 +13,7 @@ import { requestRender, isCancellation, cancelPending } from './renderService';
 import { drawPreview, formatMetrics } from './preview';
 import { parseGpx } from './gpx/parse';
 import { createPage } from './core/page';
+import { getAlgorithm } from './core/algorithms/index';
 
 
 window.addEventListener('error', logError);
@@ -101,6 +102,42 @@ function pageSettings() {
 }
 
 /**
+ * How far past the near edge of the sheet to draw, as a fraction of the drawable
+ * height.
+ *
+ * The relief lifts a line up the page, so a peak sitting on the bottom row is
+ * raised off the edge and leaves blank paper beneath it, with no nearer ground
+ * to fill it in. Sampling a strip below the sheet and cutting it off at the edge
+ * is what fills it.
+ *
+ * Relief height is exactly the furthest a line can rise, so over-plotting by
+ * that much is enough by construction, and needs no setting of its own. It is
+ * capped, because a sheet framed with a huge relief should not quietly download
+ * a quarter again as much ground.
+ *
+ * Zero when nothing lifts anything: a plan-view contour map has no displacement,
+ * so the extra ground would be sampled and then thrown away.
+ */
+function overplotFraction() {
+  const lifts =
+    appState.drape ||
+    appState.selectedAlgorithms.some((id) => {
+      try {
+        return !getAlgorithm(id).planar;
+      } catch {
+        return false;
+      }
+    });
+  if (!lifts) return 0;
+
+  const { drawable } = createPage(pageSettings());
+  const heightScale = Number(appState.heightScale);
+  if (!(heightScale > 0)) return 0;
+
+  return Math.min(0.25, heightScale / drawable.height);
+}
+
+/**
  * The sheet, described by where it sits on screen and what that covers.
  *
  * Working from the screen rectangle rather than from map bounds settles two
@@ -135,11 +172,11 @@ function currentSheet() {
   // All four corners, because a tilted camera sees a trapezoid: the far edge
   // covers far more ground than the near one, and three corners can only
   // describe a parallelogram.
-  const cornersAt = (top) => ({
+  const cornersAt = (top, bottom = y + height) => ({
     nw: at(x, top),
     ne: at(x + width, top),
-    sw: at(x, y + height),
-    se: at(x + width, y + height),
+    sw: at(x, bottom),
+    se: at(x + width, bottom),
   });
 
   // Near the horizon the far edge runs away to nothing useful, and past it
@@ -176,17 +213,31 @@ function currentSheet() {
 
   const usedHeight = y + height - top;
 
+  // The region reaches past the near edge of the sheet, so the bottom of the
+  // page can be drawn rather than left blank under a peak. `screenRect` does
+  // not: it is where the finished sheet is painted on screen, and stretching it
+  // would move the preview off the paper it represents.
+  //
+  // Screen-to-ground is a homography, and the region is fitted through four
+  // corners, so a longer rectangle describes the same map over more ground. The
+  // sheet's own bottom edge lands at exactly the fraction of the field the
+  // worker fits to the page, and everything above it is untouched.
+  const overplot = overplotFraction();
+
   return {
     screenRect: { x, y: top, width, height: usedHeight },
-    corners: cornersAt(top),
+    corners: cornersAt(top, y + height + usedHeight * overplot),
+    overplot,
     pitch: map.getPitch(),
     clamped: top > y + 0.5,
   };
 }
 
-function buildRequest(corners) {
+function buildRequest(corners, overplot) {
   return {
     regionCorners: corners,
+    // How much of that region is below the sheet, and gets cut off at the edge.
+    overplot,
     sourceId: appState.demSource,
     // Only the tiles whose bytes are actually in hand; the worker treats an
     // empty list as "use the ordinary tiled source".
@@ -283,7 +334,7 @@ function updateMap() {
   appState.sheetPitch = Math.round(sheet.pitch);
   appState.sheetClamped = sheet.clamped;
 
-  requestRender(buildRequest(sheet.corners), (progress) => {
+  requestRender(buildRequest(sheet.corners, sheet.overplot), (progress) => {
     appState.renderProgress = progress;
   })
     .then((result) => {

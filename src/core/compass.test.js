@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { compassRose, compassForPage } from './compass';
+import {
+  compassRose,
+  compassForPage,
+  compassCutout,
+  roseFootprint,
+  roseGeometry,
+} from './compass';
+import { pointInPolygon } from './clip';
 import { createPage } from './page';
 import { polylineLength } from './optimize';
 
@@ -223,5 +230,97 @@ describe('a rose lying on the ground', () => {
 
   it('falls back when the projection cannot be built', () => {
     expect(() => compassForPage(page, { radius: 10, project: () => null })).not.toThrow();
+  });
+});
+
+describe('roseFootprint', () => {
+  it('covers every point of the rose', () => {
+    const margin = 0.12;
+    const hull = roseFootprint({ margin });
+
+    for (const line of roseGeometry()) {
+      for (let i = 0; i < line.length; i += 2) {
+        // Convex ring, so containment is "inside every edge". A crossing count
+        // would be undefined for the ring vertices, which lie on the boundary.
+        for (let j = 0, k = hull.length - 2; j < hull.length; k = j, j += 2) {
+          const side =
+            (hull[j] - hull[k]) * (line[i + 1] - hull[k + 1]) -
+            (hull[j + 1] - hull[k + 1]) * (line[i] - hull[k]);
+          expect(side).toBeGreaterThanOrEqual(-1e-9);
+        }
+      }
+    }
+  });
+
+  it('reaches past the ring by the margin, and past the N above it', () => {
+    const hull = roseFootprint({ margin: 0.2 });
+    let maxX = -Infinity;
+    let minY = Infinity;
+    for (let i = 0; i < hull.length; i += 2) {
+      maxX = Math.max(maxX, hull[i]);
+      minY = Math.min(minY, hull[i + 1]);
+    }
+    // Sideways the ring binds: radius 1 plus the margin.
+    expect(maxX).toBeCloseTo(1.2, 2);
+    // Upwards the letter binds: its top is at -1.49, pushed out by the margin.
+    expect(minY).toBeLessThan(-1.6);
+  });
+
+  it('is not a disc: it is tighter at the sides than above', () => {
+    const hull = roseFootprint({ margin: 0.12 });
+    let maxX = -Infinity;
+    let minY = Infinity;
+    for (let i = 0; i < hull.length; i += 2) {
+      maxX = Math.max(maxX, hull[i]);
+      minY = Math.min(minY, hull[i + 1]);
+    }
+    expect(-minY).toBeGreaterThan(maxX + 0.3);
+  });
+});
+
+describe('compassCutout', () => {
+  const page = createPage({ paper: 'A4', orientation: 'portrait', margin: 10 });
+
+  it('surrounds every stroke of the rose it is placed with', () => {
+    const options = { radius: 12, corner: 'bottom-right', margin: 1.5 };
+    const rose = compassForPage(page, options);
+    const hull = compassCutout(page, options);
+
+    for (const line of rose) {
+      for (let i = 0; i < line.length; i += 2) {
+        expect(pointInPolygon(hull, line[i], line[i + 1])).toBe(true);
+      }
+    }
+  });
+
+  it('follows the corner the rose is placed in', () => {
+    const left = compassCutout(page, { corner: 'bottom-left' });
+    const right = compassCutout(page, { corner: 'bottom-right' });
+    expect(Math.min(...left.filter((_, i) => i % 2 === 0))).toBeLessThan(
+      Math.min(...right.filter((_, i) => i % 2 === 0))
+    );
+  });
+
+  it('grows with the radius', () => {
+    const small = compassCutout(page, { radius: 8, margin: 1.5 });
+    const large = compassCutout(page, { radius: 20, margin: 1.5 });
+    const span = (p) => {
+      const xs = p.filter((_, i) => i % 2 === 0);
+      return Math.max(...xs) - Math.min(...xs);
+    };
+    expect(span(large)).toBeGreaterThan(span(small) * 2);
+  });
+
+  it('follows a ground projection, so a tilted sheet cuts an ellipse', () => {
+    // Squash y, as a tilted view does, and the cut-out must squash with it.
+    const project = (cx, cy, radius) => (lx, ly) =>
+      [cx + lx * radius, cy + ly * radius * 0.4];
+    const hull = compassCutout(page, { radius: 12, project });
+
+    const xs = hull.filter((_, i) => i % 2 === 0);
+    const ys = hull.filter((_, i) => i % 2 === 1);
+    const spanX = Math.max(...xs) - Math.min(...xs);
+    const spanY = Math.max(...ys) - Math.min(...ys);
+    expect(spanY).toBeLessThan(spanX);
   });
 });

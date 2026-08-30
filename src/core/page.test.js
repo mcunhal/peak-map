@@ -84,3 +84,33 @@ describe('createPageMapper', () => {
     }
   });
 });
+
+describe('createPageMapper with an over-plotted field', () => {
+  const page = createPage({ paper: { width: 200, height: 200 }, margin: 0 });
+
+  it('fits the sheet rows, not the whole field', () => {
+    const plain = createPageMapper(page, { width: 100, height: 100 });
+    const over = createPageMapper(page, { width: 100, height: 110, sheetHeight: 100 });
+    // The extra rows hang off the bottom, so the map keeps its size.
+    expect(over.scale).toBeCloseTo(plain.scale, 12);
+    expect(over.offsetY).toBeCloseTo(plain.offsetY, 12);
+  });
+
+  it('puts the sheet edge exactly on the drawable edge', () => {
+    const map = createPageMapper(page, { width: 100, height: 110, sheetHeight: 100 });
+    expect(map.toMm(0, 100)[1]).toBeCloseTo(200, 9);
+  });
+
+  it('maps the over-plotted rows below the page', () => {
+    const map = createPageMapper(page, { width: 100, height: 110, sheetHeight: 100 });
+    expect(map.toMm(0, 110)[1]).toBeCloseTo(220, 9);
+  });
+
+  it('ignores a sheet height that is not a usable number', () => {
+    const plain = createPageMapper(page, { width: 100, height: 100 });
+    for (const bad of [0, -5, NaN, undefined, null]) {
+      const map = createPageMapper(page, { width: 100, height: 100, sheetHeight: bad });
+      expect(map.scale).toBeCloseTo(plain.scale, 12);
+    }
+  });
+});

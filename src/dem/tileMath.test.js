@@ -335,4 +335,54 @@ describe('regionRowScales', () => {
     const scales = regionRowScales(region, 200, 140);
     expect(scales[70]).toBeCloseTo(1, 9);
   });
+
+  it('normalises at the row it is told to', async () => {
+    const { regionRowScales, createRegion } = await import('./tileMath');
+    const region = createRegion({
+      nw: { lng: -9.0431, lat: 41.6303 },
+      ne: { lng: -6.1569, lat: 41.6303 },
+      sw: { lng: -8.1123, lat: 39.8623 },
+      se: { lng: -7.0877, lat: 39.8623 },
+    });
+    const scales = regionRowScales(region, 200, 140, { normaliseRow: 50 });
+    expect(scales[50]).toBeCloseTo(1, 9);
+    // Row 70 is nearer the viewer than row 50, so it now scales above one.
+    expect(scales[70]).toBeGreaterThan(1);
+  });
+
+  it('keeps the relief height when the field is extended past the sheet', async () => {
+    const { regionRowScales, createRegion } = await import('./tileMath');
+    // The same ground, sampled twice: once as the bare sheet, and once with a
+    // tenth of a sheet of over-plot below it. The corners differ because the
+    // extended field covers more ground, but rows 0..139 are the same ground.
+    const sheet = createRegion({
+      nw: { lng: -9.0431, lat: 41.6303 },
+      ne: { lng: -6.1569, lat: 41.6303 },
+      sw: { lng: -8.1123, lat: 39.8623 },
+      se: { lng: -7.0877, lat: 39.8623 },
+    });
+    const bare = regionRowScales(sheet, 200, 140);
+
+    // Extend by 10%: the near edge moves on along the same projective map, which
+    // is what unprojecting a taller screen rectangle produces.
+    const at = (v) => {
+      const a = sheet.toLngLat(200, 140, 0, 140 * v);
+      const b = sheet.toLngLat(200, 140, 200, 140 * v);
+      return [a, b];
+    };
+    const [sw, se] = at(1.1);
+    const extended = createRegion({
+      nw: { lng: -9.0431, lat: 41.6303 },
+      ne: { lng: -6.1569, lat: 41.6303 },
+      sw,
+      se,
+    });
+
+    const over = regionRowScales(extended, 200, 154, { normaliseRow: 140 / 2 });
+
+    // Every row of the sheet keeps the scale it had. Without the normalisation
+    // row this drifts by the ratio of the two middles, silently rescaling the
+    // whole relief as a side effect of extending the field.
+    for (let y = 0; y < 140; ++y) expect(over[y]).toBeCloseTo(bare[y], 6);
+  });
 });
