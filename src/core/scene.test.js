@@ -223,6 +223,52 @@ describe('renderRidgelineScene', () => {
     expect(with_.terrain).toEqual(without.terrain);
   });
 
+  // Sea to the west, land rising eastward. The coast runs down the sheet rather
+  // than across it, so no row hides another and every row carries both the
+  // shoreline and the summit — which is what lets one drawing show both where
+  // the coast landed and how much relief the land actually got.
+  const coastalField = () =>
+    field(40, 40, (x) => (x < 20 ? -5000 : 1 + (x - 20) * 50));
+
+  const drawnYs = (scene) => {
+    const ys = [];
+    for (const line of scene.terrain) {
+      for (let i = 1; i < line.length; i += 2) ys.push(line[i]);
+    }
+    return ys;
+  };
+
+  it('puts the coastline on the coast, not above it', () => {
+    // Terrarium carries real bathymetry, so a coastal sheet's lowest sample is
+    // the seabed — off Iberia, -5246m against a 3436m summit. The sea is never
+    // drawn, but while it still set the baseline it lifted every line on the
+    // sheet by one constant, sliding the whole drawing north of the map under it.
+    const scene = renderRidgelineScene(coastalField(), {
+      ...opts({ heightScale: 30, oceanLevel: 0, rowCount: 20, smoothSteps: 0 }),
+    });
+
+    // The shoreline is 1m above the water, so it belongs on its own row: the
+    // nearest drawn row is 39, and the shore on it must sit at y = 39.
+    expect(Math.max(...drawnYs(scene))).toBeGreaterThan(38.5);
+  });
+
+  it('spends the whole relief height on the ground that is drawn', () => {
+    // 30 samples of relief has to mean 30 between the lowest land and the
+    // highest, not 30 shared with five kilometres of water nobody asked to see.
+    const scene = renderRidgelineScene(coastalField(), {
+      ...opts({ heightScale: 30, oceanLevel: 0, rowCount: 20, smoothSteps: 0, occlude: false }),
+    });
+
+    const ys = drawnYs(scene);
+    // Rows 1 to 39 are drawn, so the sheet spans 38 samples of ground before
+    // any lift. The drawing's total height is that plus the relief, and the
+    // relief is what the setting asked for: 38 + 30. While the seabed set the
+    // scale, land got 950 of 5950 metres of it — under five samples.
+    const span = Math.max(...ys) - Math.min(...ys);
+    expect(span).toBeGreaterThan(38 + 28);
+    expect(span).toBeLessThan(38 + 32);
+  });
+
   it('rejects an unknown track mode', () => {
     const f = field(20, 20, () => 100);
     expect(() => renderRidgelineScene(f, { trackMode: 'sparkles' })).toThrow(/track mode/i);

@@ -127,7 +127,14 @@ async function render(request, progress, stillCurrent) {
   }
   if (!stillCurrent()) return null;
 
-  const range = computeRange(field);
+  // Reported to the panel, so it describes the drawing rather than the data
+  // behind it: a coastal sheet whose lowest sample is 5km of Atlantic seabed
+  // would otherwise say it spans ground it never draws.
+  const range = computeRange(field, {
+    floor: Number.isFinite(algorithmOptions.oceanLevel)
+      ? algorithmOptions.oceanLevel
+      : undefined,
+  });
   progress('Generating lines', 0.55);
 
   const mapper = createPageMapper(page, field);

@@ -63,7 +63,7 @@ export function createHeightField({ width, height, data, bbox = null, region = n
  * `rowWithHighestPoint` is what the ridgeline iterator aligns its rows to, so the
  * summit always falls on a drawn line rather than between two of them.
  */
-export function computeRange(field) {
+export function computeRange(field, { floor = NODATA } = {}) {
   const { width, height, data } = field;
 
   let minHeight = Infinity;
@@ -75,7 +75,10 @@ export function computeRange(field) {
     const rowOffset = y * width;
     for (let x = 0; x < width; ++x) {
       const value = data[rowOffset + x];
-      if (isNoData(value)) continue;
+      // A sample the renderer will not draw must not set the range the drawing
+      // is positioned and scaled by. `floor` is the ocean level, and the test
+      // matches how the rows are cut: at or below it is water, not ground.
+      if (isNoData(value) || value <= floor) continue;
       validSamples += 1;
       if (value < minHeight) minHeight = value;
       if (value > maxHeight) {

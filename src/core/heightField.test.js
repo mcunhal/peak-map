@@ -74,3 +74,42 @@ describe('computeRange', () => {
     expect(range.rowWithHighestPoint).toBe(15);
   });
 });
+
+describe('computeRange over a floor', () => {
+  const field = (values) =>
+    createHeightField({
+      width: values[0].length,
+      height: values.length,
+      data: Float32Array.from(values.flat()),
+    });
+
+  it('counts every sample when no floor is given', () => {
+    const range = computeRange(field([[-5000, 10], [20, 30]]));
+    expect(range.minHeight).toBe(-5000);
+    expect(range.maxHeight).toBe(30);
+  });
+
+  it('ignores samples at or below the floor', () => {
+    // The seabed is not part of the drawing, so it must not set its baseline.
+    const range = computeRange(field([[-5000, 10], [20, 30]]), { floor: 0 });
+    expect(range.minHeight).toBe(10);
+    expect(range.maxHeight).toBe(30);
+    expect(range.heightRange).toBe(20);
+  });
+
+  it('excludes a sample sitting exactly on the floor', () => {
+    // Matches how the renderer cuts: `elevation <= oceanLevel` is not drawn.
+    expect(computeRange(field([[0, 5]]), { floor: 0 }).minHeight).toBe(5);
+  });
+
+  it('counts nothing when the floor is above everything', () => {
+    const range = computeRange(field([[-100, -50]]), { floor: 0 });
+    expect(range.isEmpty).toBe(true);
+    expect(range.validSamples).toBe(0);
+  });
+
+  it('still reports the row holding the highest point', () => {
+    const range = computeRange(field([[-5000, -5000], [10, 900]]), { floor: 0 });
+    expect(range.rowWithHighestPoint).toBe(1);
+  });
+});

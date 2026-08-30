@@ -197,7 +197,11 @@ export function renderRidgelineScene(field, options = {}) {
     );
   }
 
-  const range = computeRange(field);
+  // Measured against the ground that will actually be drawn. Terrarium carries
+  // real bathymetry, so a coastal sheet's lowest sample is the seabed: off
+  // Iberia it is -5246m against a 3436m summit, which put 60% of the relief
+  // underwater and lifted the entire drawing 34mm north of the map beneath it.
+  const range = computeRange(field, { floor: oceanLevel });
   if (range.isEmpty) {
     return {
       terrain: [],

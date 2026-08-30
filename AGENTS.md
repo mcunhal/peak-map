@@ -93,7 +93,7 @@ a fill; never `stroke-dasharray`. Tests assert all of it.
 ## Running things
 
 ```bash
-npm test          # 510 tests, offline, ~3s
+npm test          # 517 tests, offline, ~3s
 npm run dev
 npm run deploy    # builds and pushes to Cloudflare
 ```
@@ -202,6 +202,20 @@ reports every tile absent, and nothing says the page never asked.
 Localhost is exempt, which is what makes a local tile server work under
 `npm run dev` but not against the deployed site.
 
+**The seabed setting the baseline for the land.** Terrarium carries real
+bathymetry, so a coastal sheet's lowest sample is the ocean floor: off Iberia
+-5246m against a 3436m summit. `oceanLevel` stops those lines being *drawn*, but
+`computeRange` still counted them, so water positioned and scaled a drawing it
+was not part of. Two symptoms at once, and only the first is obvious. Every line
+on the sheet was lifted by one constant — 34.5mm of an A3, measured at Lisbon,
+Porto, Cadiz and Gijon alike — so the whole drawing sat north of the map beneath
+it in every perspective, which is what makes it read as a projection bug rather
+than an elevation one. And the relief silently shrank: only 3436 of 8682 metres
+of range was land, so a 57mm setting gave the land 22mm. `computeRange` now takes
+a `floor`, and both places that derive displacement (`scene.js`,
+`algorithms/ridgeline.js`) pass `oceanLevel` — measure the range over the ground
+that will actually be drawn.
+
 **An opaque CSS background under the preview canvas.** Upstream painted a
 checkerboard behind `.height-map` to show the overlay area. It sits between the
 sheet and the map, so paper transparency revealed checkers rather than terrain.
@@ -217,7 +231,11 @@ had the same shape: a fixture that could not show the effect being asserted.
   asymmetric terrain for anything involving direction.
 - **Near and far are easy to invert.** The top of a sheet is the *far* ground, so
   rows there cover *more* ground, and a camera compresses them. Got this backwards
-  twice, once in a region test and once in a compass test.
+  twice, once in a region test and once in a compass test. A third time while
+  testing the ocean baseline: a fixture whose land rose *towards* the viewer let
+  the nearest row occlude every row behind it, so the drawing was one line and
+  the assertion measured nothing. Put the coast down the sheet rather than
+  across it, and every row carries both the shore and the summit.
 - **Physical intuitions need checking against the algorithm.** Flooding a cone
   *reduces* line count, because a horizontal cut through a cone is one interval,
   not two. Occlusion is correctly a no-op until displacement outruns row spacing.

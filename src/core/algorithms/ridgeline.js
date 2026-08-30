@@ -109,7 +109,9 @@ export function ridgeline(field, options = {}) {
     occlude = true,
   } = options;
 
-  const range = computeRange(field);
+  // Only the ground that gets drawn sets the baseline and the scale; see the
+  // note in scene.js on what the seabed did to a coastal sheet.
+  const range = computeRange(field, { floor: oceanLevel });
   if (range.isEmpty) return [];
 
   const { width, height } = field;
