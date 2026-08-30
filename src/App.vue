@@ -68,40 +68,39 @@
         </div>
         <div class='row'><div class='col'></div><div class='col c-2 hint'>How finely the terrain is sampled. Sizes below are in millimetres on the paper, so this changes how much resolves, not how the map looks.</div></div>
 
-        <template v-if="selectedAlgorithms.includes('ridgeline')">
-          <div class='row'>
-            <div class='col'>Line count</div>
-            <div class='col c-2'>
-              <input type='range' min='10' max='200' step='1' v-model='lineDensity'>
-              <input type='number' step='1' v-model='lineDensity' min='10' max='200'>
-            </div>
+        <div class='row' v-if='drawsRows'>
+          <div class='col'>Line count</div>
+          <div class='col c-2'>
+            <input type='range' min='10' max='200' step='1' v-model='lineDensity'>
+            <input type='number' step='1' v-model='lineDensity' min='10' max='200'>
           </div>
-          <div class='row'>
-            <div class='col'>Relief height (mm)</div>
-            <div class='col c-2'>
-              <input type='range' min='2' max='120' step='1' v-model='heightScale'>
-              <input type='number' step='1' v-model='heightScale' min='2' max='120'>
-            </div>
+        </div>
+        <div class='row' v-if='hasRelief'>
+          <div class='col'>Relief height (mm)</div>
+          <div class='col c-2'>
+            <input type='range' min='2' max='120' step='1' v-model='heightScale'>
+            <input type='number' step='1' v-model='heightScale' min='2' max='120'>
           </div>
-          <div class='row'>
-            <div class='col'>Smoothing (mm)</div>
-            <div class='col c-2'>
-              <input type='range' min='0' max='6' step='0.1' v-model='smoothSteps'>
-              <input type='number' step='0.1' v-model='smoothSteps' min='0' max='6'>
-            </div>
+        </div>
+        <div class='row' v-if='drawsRows'>
+          <div class='col'>Smoothing (mm)</div>
+          <div class='col c-2'>
+            <input type='range' min='0' max='6' step='0.1' v-model='smoothSteps'>
+            <input type='number' step='0.1' v-model='smoothSteps' min='0' max='6'>
           </div>
-          <div class='row'>
-            <div class='col'>Ocean level</div>
-            <div class='col c-2'>
-              <input type='range' min='-20' max='500' step='1' v-model='oceanLevel'>
-              <input type='number' step='1' v-model='oceanLevel' min='-20' max='500'>
-            </div>
+        </div>
+        <div class='row'>
+          <div class='col'>Ocean level</div>
+          <div class='col c-2'>
+            <input type='range' min='-20' max='500' step='1' v-model='oceanLevel'>
+            <input type='number' step='1' v-model='oceanLevel' min='-20' max='500'>
           </div>
-          <div class='row'>
-            <div class='col'>Hide what is behind</div>
-            <div class='col c-2'><input type='checkbox' v-model='occlude'></div>
-          </div>
-        </template>
+        </div>
+        <div class='row'><div class='col'></div><div class='col c-2 hint'>Ground at or below this is not drawn by any algorithm, and does not count towards the elevation range. Terrarium carries real bathymetry, so on a coastal sheet this is what stops the seabed being drawn and scaled as if it were land.</div></div>
+        <div class='row' v-if='hasRelief'>
+          <div class='col'>Hide what is behind</div>
+          <div class='col c-2'><input type='checkbox' v-model='occlude'></div>
+        </div>
 
         <template v-if='isContourFamily'>
           <div class='row'>
@@ -472,6 +471,25 @@ export default {
       return this.algorithms.some(
         (a) => a.planar && this.selectedAlgorithms.includes(a.id)
       );
+    },
+    /** Whether anything on the sheet is drawn as displaced scanlines. */
+    drawsRows() {
+      return this.selectedAlgorithms.includes('ridgeline');
+    },
+    /**
+     * Whether a relief is being built at all.
+     *
+     * Draping builds one even when the ridge lines are not drawn — the drapes
+     * still ride it and are still cut by it. So the settings that shape the
+     * relief have to be reachable then too; hiding them behind the ridge lines
+     * left the drape hint promising something the panel gave no way to control.
+     *
+     * Line count and smoothing stay with the ridge lines, because neither
+     * reaches a drape: the drape horizon is marked from every field row rather
+     * than the drawn ones, and from raw elevations rather than smoothed strokes.
+     */
+    hasRelief() {
+      return this.drawsRows || this.drape;
     },
     isContourFamily() {
       return this.selectedAlgorithms.some(a => a.indexOf('contours') === 0 || a === 'tanaka');
