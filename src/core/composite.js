@@ -23,6 +23,7 @@ import { renderRidgelineScene } from './scene';
 import { renderTerrain, getAlgorithm } from './algorithms/index';
 import { buildLayers } from './layers';
 import { sheetRows, cutBelow } from './heightField';
+import { LINE_STYLES } from './dash';
 
 /** Options the app supplies in millimetres, with the default each falls back to. */
 const MILLIMETRE_OPTIONS = {
@@ -102,6 +103,17 @@ export function buildTerrainLayers({
   const overplotRatio = field.height / sheetRows(field);
 
   const trackDots = { dotPitch: mm(dotPitch, 0.9), dotLength: mm(dotLength, 0.3) };
+
+  // Line styles are millimetres on paper, like every other size here, so they
+  // convert against the same scale. Passing them through in millimetres would
+  // make every dash shrink as the detail rose — the same silent failure the
+  // table above exists to prevent.
+  const styledTracks = tracks.map((track) => {
+    const pattern = LINE_STYLES[track.lineStyle] || null;
+    return pattern
+      ? { ...track, pattern: pattern.map((mmValue) => mmValue * samplesPerMm) }
+      : track;
+  });
 
   /** One algorithm's settings, with its own defaults underneath. */
   function optionsFor(algorithmId) {
@@ -193,7 +205,7 @@ export function buildTerrainLayers({
         // because a track is only hidden by terrain nearer than it.
         const scene = renderRidgelineScene(field, {
           ...options,
-          tracks,
+          tracks: styledTracks,
           trackMode,
           ...trackDots,
         });
@@ -248,7 +260,7 @@ export function buildTerrainLayers({
 
     const scene = renderRidgelineScene(field, {
       ...optionsFor(reliefId || 'ridgeline'),
-      tracks,
+      tracks: styledTracks,
       trackMode,
       ...trackDots,
       drapes,
@@ -282,7 +294,7 @@ export function buildTerrainLayers({
       heightScale: 0,
       rowCount: 1,
       occlude: false,
-      tracks,
+      tracks: styledTracks,
       trackMode: 'visible',
     });
     return buildLayers({ terrain: [], tracks: scene.tracks }, mapper, {

@@ -64,14 +64,16 @@ const pointCount = (layer) =>
  * boundary point between both halves, so a cut drawing can hold more points
  * than an uncut one while putting less ink on the paper.
  */
+const polylineLength = (line) => {
+  let run = 0;
+  for (let i = 2; i < line.length; i += 2) {
+    run += Math.hypot(line[i] - line[i - 2], line[i + 1] - line[i - 1]);
+  }
+  return run;
+};
+
 const drawnLength = (layer) =>
-  layer.polylines.reduce((total, line) => {
-    let run = 0;
-    for (let i = 2; i < line.length; i += 2) {
-      run += Math.hypot(line[i] - line[i - 2], line[i + 1] - line[i - 1]);
-    }
-    return total + run;
-  }, 0);
+  layer.polylines.reduce((total, line) => total + polylineLength(line), 0);
 
 const byId = (layers, id) => layers.find((l) => l.id === id);
 
@@ -235,6 +237,66 @@ describe('buildTerrainLayers', () => {
       );
 
       expect(layers.some((l) => l.id.startsWith('route'))).toBe(true);
+    });
+  });
+
+  describe('line styles at the millimetre boundary', () => {
+    const twoTracks = (lineStyle) => [
+      { name: 'r', fileName: 'a.gpx', lineStyle, points: trackAlongRow(field, 30).points },
+    ];
+
+    it('draws the same dash length on paper however fine the sampling', () => {
+      // The bug this guards: sizes are millimetres at the boundary and samples
+      // inside. A pattern passed straight through would shrink with detail.
+      const lengthsAt = (width) => {
+        const f = hillWithBbox(width, Math.round(width * 0.75));
+        const { mapper } = setup(f);
+        const layers = buildTerrainLayers({
+          field: f,
+          mapper,
+          algorithmIds: ['ridgeline'],
+          algorithmOptions: { rowCount: 20, heightScale: 20, smoothSteps: 0 },
+          tracks: [{
+            name: 'r', fileName: 'a.gpx', lineStyle: 'dashed',
+            points: trackAlongRow(f, Math.round(f.height * 0.5)).points,
+          }],
+          trackMode: 'visible',
+          pens: { tracks: [{ color: '#c1272d', width: 0.5 }] },
+        });
+        const route = layers.find((l) => l.id.startsWith('route'));
+        // A mark's length is its arc length, not its first segment: `dashAlong`
+        // carries a mark around a corner, so a dash straddling a track vertex
+        // comes back with three points and a first segment far shorter than the
+        // dash. Measuring that segment reads 0.17mm for a correct 1.8mm mark.
+        return route.polylines.slice(1, 6).map(polylineLength);
+      };
+
+      const coarse = lengthsAt(80);
+      const fine = lengthsAt(160);
+      // Without the conversion the route is one unbroken polyline, `slice`
+      // returns nothing and the loop below asserts nothing at all. Pin the
+      // count first, or this test cannot fail.
+      expect(coarse).toHaveLength(5);
+      expect(fine).toHaveLength(5);
+      for (let i = 0; i < coarse.length; ++i) {
+        // 1.8mm on paper at both sampling rates.
+        expect(fine[i]).toBeCloseTo(coarse[i], 1);
+        expect(fine[i]).toBeCloseTo(1.8, 1);
+      }
+    });
+
+    it('leaves a solid track as one polyline per visible run', () => {
+      const { mapper } = setup(field);
+      const layers = buildTerrainLayers({
+        field,
+        mapper,
+        algorithmIds: ['ridgeline'],
+        algorithmOptions: { rowCount: 20, heightScale: 20, smoothSteps: 0 },
+        tracks: twoTracks('solid'),
+        trackMode: 'visible',
+        pens: { tracks: [{ color: '#c1272d', width: 0.5 }] },
+      });
+      expect(layers.find((l) => l.id.startsWith('route')).polylines).toHaveLength(1);
     });
   });
 });
