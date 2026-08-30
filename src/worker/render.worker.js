@@ -10,27 +10,16 @@
  * Nothing in src/core touches the DOM, which is what makes this possible at all.
  */
 import { buildHeightField, loadTilePixels } from '../dem/buildHeightField';
+import { readGeoTiff, buildHeightFieldFromRasters } from '../dem/ptLidarRaster';
+import { ATTRIBUTION as LIDAR_ATTRIBUTION } from '../dem/ptLidarCatalog';
 import { getDemSource, unavailableReason } from '../dem/sources';
 import { createRegion, regionFromBbox, lngToTileX, latToTileY, tileXToLng, tileYToLat } from '../dem/tileMath';
 import { computeRange } from '../core/heightField';
-import { renderRidgelineScene } from '../core/scene';
-import { renderTerrain, getAlgorithm } from '../core/algorithms/index';
+import { buildTerrainLayers } from '../core/composite';
 import { createPage, createPageMapper } from '../core/page';
-import { buildLayers } from '../core/layers';
 import { writeSvg } from '../core/svgWriter';
 import { optimizeLayers, measurePlot, compareMetrics, vpypeRecipe } from '../core/optimize';
 import { compassForPage } from '../core/compass';
-
-/** Options the app supplies in millimetres, with the default each falls back to. */
-const MILLIMETRE_OPTIONS = {
-  heightScale: 26,
-  separation: 4,
-  spacing: 0.9,
-  smoothSteps: 0.9,
-  minStroke: 0.8,
-  maxStroke: 3.5,
-  gap: 1.2,
-};
 
 let currentJob = 0;
 
@@ -60,6 +49,9 @@ async function render(request, progress, stillCurrent) {
     sourceId = 'terrarium',
     detail = 900,
     algorithm = 'ridgeline',
+    // The UI sends a list; a single `algorithm` is still accepted so the worker
+    // can be driven the old way.
+    algorithms = null,
     algorithmOptions = {},
     tracks = [],
     trackMode = 'dotted',
@@ -71,10 +63,18 @@ async function render(request, progress, stillCurrent) {
     compass = null,
     weightMode = 'passes',
     weightPasses = 3,
+    lidarTiles = [],
+    // Hang the planar algorithms on the relief instead of drawing them flat.
+    drape = false,
   } = request;
 
-  const source = getDemSource(sourceId);
-  if (!source) throw new Error(unavailableReason(sourceId));
+  // LiDAR replaces the tiled sources rather than supplementing them: when the
+  // caller has supplied rasters, they already cover the sheet at a resolution
+  // no web-mercator tile pyramid reaches, and mixing the two would seam.
+  const usingLidar = Array.isArray(lidarTiles) && lidarTiles.length > 0;
+
+  const source = usingLidar ? null : getDemSource(sourceId);
+  if (!usingLidar && !source) throw new Error(unavailableReason(sourceId));
 
   // The sheet is a rotated rectangle in general; a bounding box is the north-up
   // special case, kept so the worker can still be driven with one.
@@ -88,120 +88,67 @@ async function render(request, progress, stillCurrent) {
   const fieldWidth = Math.round(aspect >= 1 ? detail : detail * aspect);
   const fieldHeight = Math.round(aspect >= 1 ? detail / aspect : detail);
 
-  progress('Downloading elevation tiles', 0);
-  const { field, zoom, tileCount, missingTiles } = await buildHeightField({
-    source,
-    region,
-    fieldWidth,
-    fieldHeight,
-    loadTile: loadTilePixels,
-    onProgress: ({ loaded, total, message }) =>
-      progress(message, total ? (loaded / total) * 0.5 : 0),
-  });
+  let field, zoom = null, tileCount = 0, missingTiles = 0, lidarCoverage = null;
+
+  if (usingLidar) {
+    // Decoding happens here rather than on the main thread: a 50cm tile is
+    // 2000x2000 floats, and decoding a sheetful of them would stall the map.
+    progress('Decoding LiDAR tiles', 0);
+    const { fromArrayBuffer } = await import('geotiff');
+
+    const rasters = [];
+    for (let i = 0; i < lidarTiles.length; ++i) {
+      const bytes = lidarTiles[i] && lidarTiles[i].bytes ? lidarTiles[i].bytes : lidarTiles[i];
+      try {
+        rasters.push(await readGeoTiff(bytes, { fromArrayBuffer }));
+      } catch (err) {
+        // One unreadable tile should leave a hole, not lose the whole sheet.
+        missingTiles += 1;
+      }
+      progress('Decoding LiDAR tiles', ((i + 1) / lidarTiles.length) * 0.5);
+      if (!stillCurrent()) return null;
+    }
+
+    const built = buildHeightFieldFromRasters({ region, rasters, fieldWidth, fieldHeight });
+    field = built.field;
+    tileCount = built.tilesUsed;
+    lidarCoverage = built.coverage;
+  } else {
+    progress('Downloading elevation tiles', 0);
+    ({ field, zoom, tileCount, missingTiles } = await buildHeightField({
+      source,
+      region,
+      fieldWidth,
+      fieldHeight,
+      loadTile: loadTilePixels,
+      onProgress: ({ loaded, total, message }) =>
+        progress(message, total ? (loaded / total) * 0.5 : 0),
+    }));
+  }
   if (!stillCurrent()) return null;
 
   const range = computeRange(field);
   progress('Generating lines', 0.55);
 
   const mapper = createPageMapper(page, field);
-  const definition = getAlgorithm(algorithm);
 
-  // Every setting with a size arrives in millimetres and is converted here.
-  //
-  // The algorithms work in field samples, which is right for them, but a sample
-  // is not a fixed size: raising the detail makes samples smaller, so a relief
-  // of "60 samples" silently shrank from 74mm of paper to 14mm as detail went
-  // from 300 to 1600. Detail should decide how much the data resolves, and
-  // nothing else. Converting at this boundary is what makes that true.
-  const samplesPerMm = 1 / mapper.scale;
-  const mm = (value, fallback) =>
-    (Number.isFinite(value) ? value : fallback) * samplesPerMm;
-
-  const sized = {};
-  for (const [key, fallback] of Object.entries(MILLIMETRE_OPTIONS)) {
-    if (algorithmOptions[key] !== undefined) sized[key] = mm(algorithmOptions[key], fallback);
-  }
-
-  const options = { ...definition.defaults, ...algorithmOptions, ...sized };
-  // Integration step follows the separation, so it never needs its own setting.
-  // An eighth keeps hachure cutting stable: a coarser step overshoots the gap
-  // logic and triples the number of strokes.
-  if (sized.separation) options.stepSize = Math.max(0.25, sized.separation / 8);
-  if (sized.smoothSteps !== undefined) {
-    options.smoothSteps = Math.max(0, Math.round(sized.smoothSteps));
-  }
-
-  let layers;
-
-  if (!definition.planar && tracks.length > 0) {
-    // The ridgeline family needs terrain and tracks rendered together, because a
-    // track is only hidden by terrain nearer than it.
-    const scene = renderRidgelineScene(field, {
-      ...options,
-      tracks,
-      trackMode,
-      dotPitch: mm(request.dotPitch, 0.9),
-      dotLength: mm(request.dotLength, 0.3),
-    });
-    layers = buildLayers(scene, mapper, {
-      terrainPen: pens.terrain || { color: '#161616', width: 0.3 },
-      trackPens: pens.tracks || [],
-    });
-  } else {
-    const groups = renderTerrain(field, algorithm, options);
-    layers = buildLayers(
-      {
-        terrain: groups.length === 1 ? groups[0].polylines : [],
-        tracks: [],
-      },
-      mapper,
-      { terrainPen: pens.terrain || { color: '#161616', width: 0.3 } }
-    );
-
-    // Algorithms that vary line weight return several groups. There are two ways
-    // to honour that on a plotter, and they are not equivalent:
-    //
-    //   passes  draw the heavier groups more than once, so one pen renders the
-    //           whole sheet. Costs plotting time.
-    //   pen     give each group its own width, which needs the pens actually
-    //           swapped between layers. Free, if you are willing to do that.
-    //
-    // Passes is the default, because a sheet plotted with one pen and no
-    // intervention is the case that has to work.
-    if (groups.length > 1) {
-      const base = pens.terrain || { color: '#161616', width: 0.3 };
-      const byPasses = (weightMode || 'passes') === 'passes';
-      const maxPasses = Math.max(1, Math.round(weightPasses || 3));
-
-      layers = groups.map((group) => ({
-        id: group.name,
-        label: group.name,
-        penColor: base.color,
-        penWidth: byPasses
-          ? Number(base.width)
-          : Number((0.15 + group.weight * 0.35).toFixed(2)),
-        passes: byPasses ? Math.max(1, Math.round(group.weight * maxPasses)) : 1,
-        polylines: group.polylines.map((line) => mapper.polylineToMm(line)),
-      }));
-    }
-
-    // Planar algorithms have no depth, so a track is simply drawn over the top.
-    if (tracks.length > 0) {
-      const scene = renderRidgelineScene(field, {
-        ...options,
-        heightScale: 0,
-        rowCount: 1,
-        occlude: false,
-        tracks,
-        trackMode: 'visible',
-      });
-      layers = layers.concat(
-        buildLayers({ terrain: [], tracks: scene.tracks }, mapper, {
-          trackPens: pens.tracks || [],
-        })
-      );
-    }
-  }
+  // Choosing and combining the algorithms is `core/composite.js`: it is pure, so
+  // the combination rules can be tested against synthetic terrain rather than
+  // only through a worker that needs a tile server to say anything at all.
+  let layers = buildTerrainLayers({
+    field,
+    mapper,
+    algorithmIds: algorithms && algorithms.length > 0 ? algorithms : [algorithm],
+    algorithmOptions,
+    pens,
+    tracks,
+    trackMode,
+    dotPitch: request.dotPitch,
+    dotLength: request.dotLength,
+    drape,
+    weightMode,
+    weightPasses,
+  });
 
   // Its own layer, so it can be plotted in a different pen or left off the
   // sheet entirely without touching the map.
@@ -288,6 +235,10 @@ async function render(request, progress, stillCurrent) {
     // Without this the sheet is transparent, and viewers that do not paint a
     // background of their own show black strokes on black.
     background,
+    // CC-BY-4.0 requires the credit to travel with the work, and the SVG is
+    // what actually leaves: it gets plotted, shared and filed long after this
+    // page is closed.
+    attribution: usingLidar ? LIDAR_ATTRIBUTION.text : null,
   });
 
   return {
@@ -297,6 +248,9 @@ async function render(request, progress, stillCurrent) {
     zoom,
     tileCount,
     missingTiles,
+    // Null unless LiDAR was used; a fraction below 1 means part of the sheet
+    // had no tile, which is worth saying rather than leaving as blank paper.
+    lidarCoverage,
     fieldSize: [fieldWidth, fieldHeight],
     elevation: { min: range.minHeight, max: range.maxHeight },
     metrics: compareMetrics(before, after),

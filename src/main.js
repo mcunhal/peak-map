@@ -188,8 +188,14 @@ function buildRequest(corners) {
   return {
     regionCorners: corners,
     sourceId: appState.demSource,
+    // Only the tiles whose bytes are actually in hand; the worker treats an
+    // empty list as "use the ordinary tiled source".
+    lidarTiles: appState.lidarEnabled
+      ? appState.lidarLoaded.filter((t) => t.bytes).map((t) => ({ cacheKey: t.cacheKey, bytes: t.bytes }))
+      : [],
     detail: Number(appState.detail),
-    algorithm: appState.algorithm,
+    algorithms: appState.selectedAlgorithms,
+    drape: appState.drape,
     algorithmOptions: {
       rowCount: Number(appState.lineDensity),
       heightScale: Number(appState.heightScale),
@@ -216,6 +222,7 @@ function buildRequest(corners) {
     pens: {
       terrain: { color: appState.terrainPenColor, width: Number(appState.terrainPenWidth) },
       tracks: appState.tracks.map((t) => ({ color: t.color, width: Number(t.width) })),
+      algorithmPens: appState.algorithmPens,
     },
     optimize: {
       dedupTolerance: appState.optimizeDedup ? Number(appState.dedupTolerance) : 0,
@@ -292,6 +299,7 @@ function updateMap() {
         field: result.fieldSize.join(' x '),
         minElevation: Math.round(result.elevation.min),
         maxElevation: Math.round(result.elevation.max),
+        lidarCoverage: result.lidarCoverage,
       };
       canvas.style.opacity = 1;
       lastTarget = target;

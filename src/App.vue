@@ -21,14 +21,33 @@
 
         <h3>Terrain</h3>
         <div class='row'>
-          <div class='col'>Algorithm</div>
-          <div class='col c-2'>
-            <select v-model='algorithm'>
-              <option v-for='a in algorithms' :value='a.id' :key='a.id'>{{a.name}}</option>
-            </select>
+          <div class='col'>Algorithms</div>
+          <div class='col c-2 algorithm-list'>
+            <div class='algorithm' v-for='a in algorithms' :key='a.id'>
+              <label class='algorithm-name'>
+                <input type='checkbox' v-model='selectedAlgorithms' :value='a.id'>
+                {{a.name}}
+              </label>
+              <div class='algorithm-pen' v-if='selectedAlgorithms.includes(a.id)'>
+                <input type='color' v-model='algorithmPens[a.id].color'>
+                <input type='number' step='0.05' min='0.1' max='2'
+                       v-model.number='algorithmPens[a.id].width'>
+                <span class='unit'>mm</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div class='row'><div class='col'></div><div class='col c-2 hint'>{{algorithmDescription}}</div></div>
+        <div class='row' v-if="algorithmDescription"><div class='col'></div><div class='col c-2 hint'>{{algorithmDescription}}</div></div>
+
+        <template v-if="canDrape">
+          <div class='row'>
+            <div class='col'>Drape</div>
+            <div class='col c-2'>
+              <label><input type='checkbox' v-model='drape'> onto the relief</label>
+            </div>
+          </div>
+          <div class='row'><div class='col'></div><div class='col c-2 hint'>Lifts the flat drawings onto the relief and cuts them where it hides them, so they agree with the ridge lines instead of lying over them. Works without ridge lines too: the relief still hides, it just is not drawn.</div></div>
+        </template>
 
         <div class='row'>
           <div class='col'>Elevation data</div>
@@ -38,6 +57,8 @@
             </select>
           </div>
         </div>
+        <lidar-panel></lidar-panel>
+
         <div class='row'>
           <div class='col'>Detail</div>
           <div class='col c-2'>
@@ -47,7 +68,7 @@
         </div>
         <div class='row'><div class='col'></div><div class='col c-2 hint'>How finely the terrain is sampled. Sizes below are in millimetres on the paper, so this changes how much resolves, not how the map looks.</div></div>
 
-        <template v-if="algorithm === 'ridgeline'">
+        <template v-if="selectedAlgorithms.includes('ridgeline')">
           <div class='row'>
             <div class='col'>Line count</div>
             <div class='col c-2'>
@@ -115,7 +136,7 @@
             <input v-if="weightMode === 'passes'" type='number' step='1' min='1' max='6' v-model='weightPasses'>
           </div>
         </div>
-        <div class='row' v-if="algorithm === 'tanaka'">
+        <div class='row' v-if="selectedAlgorithms.includes('tanaka')">
           <div class='col'>Weight classes</div>
           <div class='col c-2'>
             <input type='range' min='1' max='6' step='1' v-model='tanakaClasses'>
@@ -130,7 +151,7 @@
             <input type='number' step='0.1' v-model='separation' min='0.8' max='15'>
           </div>
         </div>
-        <template v-if="algorithm === 'hachures'">
+        <template v-if="selectedAlgorithms.includes('hachures')">
           <div class='row'>
             <div class='col'>Stroke length (mm)</div>
             <div class='col c-2'>
@@ -148,7 +169,7 @@
           <div class='row'><div class='col'></div><div class='col c-2 hint'>Short on gentle ground, long on steep, blank where level.</div></div>
         </template>
 
-        <template v-if="algorithm === 'hillshade-hatching'">
+        <template v-if="selectedAlgorithms.includes('hillshade-hatching')">
           <div class='row'>
             <div class='col'>Hatch angle</div>
             <div class='col c-2'>
@@ -363,10 +384,12 @@ import Loading from './components/Loading.vue';
 import FindBounds from './components/FindBounds.vue';
 import EditableLabel from './components/EditableLabel.vue';
 import About from './components/About.vue';
+import LidarPanel from './components/LidarPanel.vue';
 
 /** Settings that change the drawing, and so should trigger a re-render. */
 const RENDER_INPUTS = [
-  'algorithm', 'demSource', 'detail',
+  'algorithmPens', 'demSource', 'detail', 'drape',
+  'lidarEnabled', 'lidarLoaded',
   'lineDensity', 'heightScale', 'smoothSteps', 'oceanLevel', 'occlude',
   'separation', 'contourInterval', 'contourCount', 'sunAzimuth', 'tanakaClasses',
   'hatchAngle', 'hatchSpacing', 'hatchLevels',
@@ -395,7 +418,7 @@ export default {
   data() {
     return appState;
   },
-  components: { Loading, About, EditableLabel, FindBounds },
+  components: { Loading, About, EditableLabel, FindBounds, LidarPanel },
 
   mounted() {
     this.onResize = () => { appState.sizeDirty = true; };
@@ -411,6 +434,12 @@ export default {
     // Pen colour and width are per track, so they need their own deep watch.
     this.unwatch.push(
       this.$watch('tracks', () => { if (this.shouldDraw) this.scheduleRender(); }, { deep: true })
+    );
+    this.unwatch.push(
+      this.$watch('algorithmPens', () => { if (this.shouldDraw) this.scheduleRender(); }, { deep: true })
+    );
+    this.unwatch.push(
+      this.$watch('selectedAlgorithms', () => { if (this.shouldDraw) this.scheduleRender(); }, { deep: true })
     );
     // Display-only, so repaint from the last render rather than making a new one.
     this.unwatch.push(
@@ -432,20 +461,29 @@ export default {
       return this.shouldDraw ? 'Show the original map' : 'Turn this region into lines';
     },
     algorithmDescription() {
-      const found = this.algorithms.find((a) => a.id === this.algorithm);
+      if (this.selectedAlgorithms.length === 0) return '';
+      if (this.selectedAlgorithms.length > 1) return 'Multiple algorithms selected. Results may overlap.';
+      const found = this.algorithms.find((a) => a.id === this.selectedAlgorithms[0]);
       return found ? found.description : '';
     },
+    canDrape() {
+      // Draping only moves planar linework; with ridge lines alone it is a
+      // switch that does nothing, so it is not offered.
+      return this.algorithms.some(
+        (a) => a.planar && this.selectedAlgorithms.includes(a.id)
+      );
+    },
     isContourFamily() {
-      return this.algorithm.indexOf('contours') === 0 || this.algorithm === 'tanaka';
+      return this.selectedAlgorithms.some(a => a.indexOf('contours') === 0 || a === 'tanaka');
     },
     isLit() {
-      return this.algorithm === 'tanaka' || this.algorithm === 'hillshade-hatching';
+      return this.selectedAlgorithms.some(a => a === 'tanaka' || a === 'hillshade-hatching');
     },
     variesWeight() {
-      return this.algorithm === 'tanaka' || this.algorithm === 'contours-by-level';
+      return this.selectedAlgorithms.some(a => a === 'tanaka' || a === 'contours-by-level');
     },
     isFlowFamily() {
-      return this.algorithm.indexOf('streamlines') === 0 || this.algorithm === 'hachures';
+      return this.selectedAlgorithms.some(a => a.indexOf('streamlines') === 0 || a === 'hachures');
     },
     lineColorHex() {
       return this.terrainPenColor;
@@ -597,6 +635,43 @@ h3 {
 .col.c-2 {
   flex: 2
   margin-left: 4px;
+}
+// The algorithm picker is a stack, not a row: `.col` is a flex row, which would
+// otherwise lay every algorithm out side by side and clip all of their names.
+.col.algorithm-list {
+  flex-direction: column;
+  align-items: stretch;
+}
+.algorithm {
+  margin-bottom: 6px;
+}
+.algorithm-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  input {
+    margin: 0;
+  }
+}
+.algorithm-pen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 0 22px;
+  input[type='color'] {
+    width: 34px;
+    height: 22px;
+    padding: 0;
+    min-width: 0;
+  }
+  input[type='number'] {
+    width: 64px;
+    min-width: 0;
+  }
+  .unit {
+    opacity: 0.7;
+  }
 }
 .col.export {
   margin-right: 4px;

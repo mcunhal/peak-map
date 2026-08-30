@@ -9,6 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "lidar:list": "node scripts/fetchLidar.mjs --list",
+    "lidar:fetch": "node scripts/fetchLidar.mjs",
     "test:watch": "vitest",
     "deploy": "npm run build && wrangler deploy",
     "deploy:dry": "npm run build && wrangler deploy --dry-run"

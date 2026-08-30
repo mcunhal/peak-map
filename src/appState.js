@@ -3,6 +3,34 @@ import { DEFAULT_DEM_SOURCE, listSources } from './dem/sources';
 import { listAlgorithms, DEFAULT_ALGORITHM } from './core/algorithms/index';
 import { PAPER_SIZES } from './core/page';
 
+/**
+ * The tile cache URL, remembered per browser.
+ *
+ * Kept out of the URL hash deliberately: it is a property of the machine you are
+ * sitting at, not of the map you are looking at, and sharing a link should not
+ * hand someone an address they cannot reach.
+ */
+const CACHE_URL_KEY = 'peak-map.lidarCacheUrl';
+
+function loadCacheUrl() {
+  const fallback = import.meta.env.VITE_LIDAR_CACHE_URL || '';
+  try {
+    const stored = window.localStorage.getItem(CACHE_URL_KEY);
+    return stored === null ? fallback : stored;
+  } catch {
+    // Private windows and blocked site data both throw rather than return null.
+    return fallback;
+  }
+}
+
+export function rememberCacheUrl(value) {
+  try {
+    window.localStorage.setItem(CACHE_URL_KEY, String(value || ''));
+  } catch {
+    // Not remembering it is a small loss; failing the render is not worth it.
+  }
+}
+
 const appState = {
   angle: 0,
   currentState: 'intro',
@@ -19,8 +47,16 @@ const appState = {
   showBoundaryDetails: false,
 
   // --- algorithm ---------------------------------------------------------
-  algorithm: DEFAULT_ALGORITHM,
+  selectedAlgorithms: [DEFAULT_ALGORITHM],
   algorithms: listAlgorithms(),
+  algorithmPens: listAlgorithms().reduce((acc, algo) => {
+    acc[algo.id] = { color: '#161616', width: 0.25 };
+    return acc;
+  }, {}),
+  // Planar algorithms drawn on the relief rather than flat, and hidden where it
+  // hides them. Off keeps the plan-view stacking, which is a different picture
+  // rather than a worse one.
+  drape: false,
   lineDensity: 60,
   // Sizes are in millimetres on the paper, so changing detail does not change
   // how the map looks.
@@ -68,6 +104,20 @@ const appState = {
   tracks: [],
   trackMode: 'dotted',
   trackModes: ['dotted', 'hidden', 'visible'],
+
+  // --- lidar (Portugal, close-ups only) -----------------------------------
+  lidarEnabled: false,
+  lidarKind: 'terrain',
+  lidarResolution: 'auto',
+  lidarResolutions: ['auto', '50cm', '2m'],
+  // Where cached tiles are fetched from. The build supplies a default, but it
+  // is a runtime setting so the same deployed page can be pointed at a bucket,
+  // at a server on the LAN, or at nothing at all.
+  lidarCacheUrl: loadCacheUrl(),
+  lidarTiles: [],
+  lidarLoaded: [],
+  lidarStatus: null,
+  lidarBusy: false,
 
   // --- optimizer ---------------------------------------------------------
   optimizeDedup: true,
