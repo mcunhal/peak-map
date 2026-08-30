@@ -25,6 +25,8 @@ vpype, or anything else that reads SVG.
 
 - **Eight ways to draw terrain**, from Joy Division ridge lines to contours,
   streamlines and nineteenth-century hachures.
+- **Combine them on one sheet**, each in its own pen and its own SVG layer, and
+  optionally draped over the relief with hidden-line removal.
 - **GPX routes** as separate pen layers, riding the terrain surface and going
   dotted where they pass behind a ridge.
 - **A plot-path optimizer** that typically cuts pen-up travel by over 90%, with
@@ -32,6 +34,8 @@ vpype, or anything else that reads SVG.
 - **Rotate and tilt** the map; the drawing follows, including a true perspective
   view when tilted.
 - **A compass rose** drawn as strokes, which foreshortens with the sheet.
+- **Portuguese LiDAR** at 50 cm and 2 m for close-ups, sixteen to sixty times
+  finer than the global elevation data.
 
 ---
 
@@ -121,6 +125,81 @@ pen widths gave 31.8 m in 51 minutes, with identical pen lifts.
 
 ---
 
+## Combining algorithms
+
+Tick as many as you like. Each draws into its own SVG layer with its own pen
+colour and width, so a sheet can be contours in one pen over ridge lines in
+another, plotted as two passes.
+
+By default they are stacked flat, each in plan view. **Drape onto the relief**
+changes that: the flat drawings are lifted onto the same displaced surface the
+ridge lines are drawn on, and cut where the ground hides them, so a contour wraps
+over the near face of a ridge and stops at its edge instead of running across it.
+
+Draping works without ridge lines too. The relief is still built and still hides
+what is behind it — it just is not drawn, which gives contours alone with true
+hidden-line removal.
+
+Which contours survive depends on the terrain, not on the line-count slider:
+changing the density of the ridge lines does not change the drape.
+
+---
+
+## High-resolution elevation (Portugal)
+
+The global elevation data is about 30 m per sample, which is plenty for a sheet
+covering tens of kilometres and visibly stair-steps below about 3 km across. For
+close-ups, DGT publishes LiDAR terrain models for mainland Portugal at 50 cm and
+2 m under CC BY 4.0.
+
+**When it is worth it.** On A3, roughly:
+
+| Sheet covers | Use |
+|---|---|
+| under ~600 m | 50 cm — a single hillside |
+| ~600 m – 2.3 km | 2 m — the usual close-up |
+| over ~2.3 km | ordinary elevation; finer data cannot reach the paper |
+
+Past about three samples per millimetre the pen is the limit rather than the
+data, so a 50 cm tile on a wide sheet is twenty megabytes buying nothing. The
+panel picks for you on **auto**.
+
+**Getting the tiles.** Tick *use high-resolution elevation*, press **Find tiles
+for this sheet**, and the panel lists exactly which squares it needs. Anything
+already cached loads by itself. For the rest, each tile links to DGT, which asks
+you to sign in — the download cannot happen from this page, because DGT's
+download endpoint sends no CORS headers and needs a session. Files land in your
+Downloads folder; drop them onto the panel.
+
+A free account at [cdd.dgterritorio.gov.pt](https://cdd.dgterritorio.gov.pt) is
+all that is needed. If you want many tiles at once, `scripts/fetchLidar.mjs`
+fetches them locally — see [AGENTS.md](AGENTS.md). Your credentials stay in
+`.env` and never reach the browser.
+
+**Note the products.** `MDT` is bare earth, which is what you want for terrain.
+`MDS` is the surface model — treetops and rooftops.
+
+**Serving your own tiles.** The **Tile cache** field takes any base URL and is
+remembered in your browser, so you can point the same page at a bucket, at a
+machine on your own network, or at nothing. Tiles are fetched as
+`<base>/<item-id>.tif` — a plain anonymous GET — so any static file server with
+CORS will do, and there is no S3 API to stand up:
+
+```
+tiles.example.com {
+    root * /srv/lidar
+    file_server
+    header Access-Control-Allow-Origin "*"
+}
+```
+
+One catch: a page served over https cannot fetch an `http://` cache, because the
+browser blocks it outright. Serve the tiles over https, or use `npm run dev`.
+The panel tells you when the address it has been given cannot work, rather than
+letting it look like an empty cache.
+
+---
+
 ## Exporting and plotting
 
 **Plot-ready SVG** gives you a sheet declared in millimetres with a numerically
@@ -141,7 +220,7 @@ is not the plot.
 ```bash
 npm install
 npm run dev            # http://localhost:5173
-npm test               # 379 tests, offline
+npm test               # 480 tests, offline
 npm run build
 ```
 
@@ -175,5 +254,10 @@ free and both have usage policies that discourage heavy or commercial traffic.
 That is fine for personal use; if this ever gets real visitors, swap them for a
 keyed provider. Only the basemap and search are affected — the elevation side
 scales freely.
+
+**Portuguese LiDAR** (`MDT`/`MDS`) is published by Direção-Geral do Território
+under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Attribution
+travels with the data: it appears in the panel and is written into exported SVG.
+If you cache or redistribute tiles, keep it.
 
 MIT, as upstream.

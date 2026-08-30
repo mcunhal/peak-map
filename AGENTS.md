@@ -36,21 +36,22 @@ because dense algorithms take seconds.
 
 | Path | What lives there |
 |---|---|
-| `src/core/` | Pure pipeline. Height fields, page, occlusion, layers, optimizer, SVG writer, compass. |
+| `src/core/` | Pure pipeline. Height fields, page, occlusion, layers, optimizer, SVG writer, compass. `composite.js` chooses and combines the algorithms, flat or draped. |
 | `src/core/algorithms/` | The eight terrain-to-line algorithms, behind one registry interface. |
-| `src/dem/` | Tile math, elevation source registry, height-field construction. |
+| `src/dem/` | Tile math, elevation source registry, height-field construction. Plus the Portugal LiDAR path: `ptLidarGrid` (grid formula + TM06), `ptLidarCatalog` (public STAC search), `ptLidarRaster` / `rasterMosaic` (GeoTIFF to height field), `lidarCache` (bucket + dropped files), `resolution` (pen-vs-data). |
 | `src/gpx/` | GPX parsing. |
-| `src/worker/` | The render worker. The only place millimetres become samples. |
+| `src/worker/` | The render worker: tiles in, SVG out. It owns no drawing logic. |
 | `src/main.js` | Map wiring, request building, preview. |
 | `src/App.vue` | The whole UI. Vue 2 SFC, one file. |
-| `scripts/` | Guarded probes and benches, plus a Node PNG decoder. |
+| `src/components/` | `LidarPanel.vue` and the smaller UI pieces. |
+| `scripts/` | Guarded probes and benches, a Node PNG decoder, and the LiDAR fetcher (`fetchLidar.mjs` + `dgtAuth.mjs` + `lidarRegions.mjs`). |
 
 ## Invariants
 
 Break any of these and something will look right while being wrong.
 
 **Sizes are millimetres at the boundary, samples inside.** The app sends every
-size in millimetres; `render.worker.js` converts to field samples against
+size in millimetres; `core/composite.js` converts to field samples against
 `mapper.scale`, via `MILLIMETRE_OPTIONS`. Algorithms only ever see samples. If you
 add a size setting, add it to that table, or raising the detail will silently
 change how the map looks. This is exactly the bug that made relief fall from 74mm
@@ -71,7 +72,14 @@ cursor. Testing tracks against the finished occlusion buffer erases foreground
 routes entirely. There are tests for both.
 
 **Tracks never mark the occlusion buffer.** A route is paint on the surface; it
-does not hide terrain. Adding tracks must leave the terrain byte-identical.
+does not hide terrain. Adding tracks must leave the terrain byte-identical. The
+same holds for drapes.
+
+**A drape is cut by the ground, not by the strokes.** `scene.js` keeps two
+horizons: the terrain buffer, marked only by the rows actually drawn, which is
+what makes ridge lines hide each other; and a second one marked from *every*
+field row, which is what drapes are tested against. Sharing one buffer looks
+right and is not — see the trap below.
 
 **Multipass runs last.** Retracing a stroke looks exactly like a duplicate to
 `deduplicate`, which will remove it. Order in `optimizePolylines` is
@@ -85,10 +93,22 @@ a fill; never `stroke-dasharray`. Tests assert all of it.
 ## Running things
 
 ```bash
-npm test          # 379 tests, offline, ~3s
+npm test          # 510 tests, offline, ~3s
 npm run dev
 npm run deploy    # builds and pushes to Cloudflare
 ```
+
+Portugal LiDAR, which needs a free DGT account in `.env` (see `.env.example`):
+
+```bash
+npm run lidar:list                                   # tile counts and storage budget
+node scripts/fetchLidar.mjs --region "Sintra" --dry-run
+node scripts/fetchLidar.mjs --region "Sintra" --out /path/to/cache
+node scripts/fetchLidar.mjs --bbox -9.5,38.75,-9.32,38.85 --resolution 2m
+```
+
+Nothing in `src/` ever reads those credentials, and nothing may: the site is
+public, so a credential in the bundle is a credential given to every visitor.
 
 **Use `./node_modules/.bin/vitest`, not `npx vitest`.** `npx` resolves to a
 different cached major version that swallows `console.log`, which will make you
@@ -163,6 +183,25 @@ angles gives uniform static on real terrain, which occupies a narrow band of it.
 guarantee. They convey direction, not height. Hachures are the density-varying
 member of that family; do not "fix" streamlines by making them vary.
 
+**One occlusion buffer for both the strokes and the drapes.** A contour draped
+on the relief lies on the ground *between* the ridge-line strokes, so testing it
+against the buffer those strokes mark lets every nearer one that crests above it
+take a bite: the contour comes out as dashes. It looks like a rendering artifact
+with no cause, and the giveaway is that it follows the line-count slider rather
+than the terrain — 105 pieces at 10 rows, 837 at 120, and back to 80 once every
+row was drawn. Drapes get a horizon marked from every field row, which also means
+changing the line count no longer changes which contours are visible. Note that a
+smooth hill cannot show this: its contours run parallel to the rows and never
+graze one. It takes terrain the contours wander across.
+
+**A plain-http tile cache on an https page.** The browser refuses the request
+without sending it, and `loadFromCache` files a rejected fetch as a *miss* —
+deliberately, because a miss is ordinary. So a cache that is up and serving
+reports every tile absent, and nothing says the page never asked.
+`describeCacheBase` decides this before any fetch and the panel shows the reason.
+Localhost is exempt, which is what makes a local tile server work under
+`npm run dev` but not against the deployed site.
+
 **An opaque CSS background under the preview canvas.** Upstream painted a
 checkerboard behind `.height-map` to show the overlay area. It sits between the
 sheet and the map, so paper transparency revealed checkers rather than terrain.
@@ -221,50 +260,13 @@ informative way.
   0.5m and 2m DTM under CC BY 4.0 via DGT. That is 15 to 60 times finer, and it is
   the only thing that changes what a pen can draw at small scales.
 
-- **Portuguese LiDAR: reachable, but it is a point cloud.** DGT's usual channels
-  are dead ends — WCS is switched off, the WMS serves a coloured picture, and the
-  INSPIRE ATOM download is the 50m hypsometry, coarser than Terrarium. The live
-  route is `portugal3d.dgterritorio.gov.pt`, which is CORS-open, accepts `Range`,
-  and exposes:
+- **Portuguese LiDAR is built and in use.** It is the one thing that changes what
+  a pen can draw at small scales, and it took a while to find the right route, so
+  the dead ends are recorded below to stop anyone walking back down them.
 
-      GET /info/{id}                          tile metadata as JSON
-      GET /laz/meta/{file}?location=portugal  octree hierarchy, ~40KB
-      GET /laz/{file}?location=portugal       the points, octree-ordered
-      GET /search/position/{lat},{lon}        elevation at one point
-      GET /search/place/{name}                geocoding
-
-  Worked example: `/continente/LO-235379` gives filename
-  `LO-235379-04-2024_v01.laz`, a 1000x1000m tile in EPSG:3763 at Seia, and the
-  point file is 323MB.
-
-  Using it is a real build, not a source registry entry. It is LAZ, so it needs a
-  decoder (laz-perf, WASM); the points are octree-ordered, so a coarse level has
-  to be selected rather than the whole 323MB fetched; ground returns have to be
-  separated from surface ones for a DTM; and EPSG:3763 has to be reprojected.
-
-  **The tile index is solved**, in `src/dem/ptLidarGrid.js`. Tile names look
-  opaque and are not: they encode the tile's own position on a one-kilometre grid
-  in EPSG:3763.
-
-      col = floor(x / 1000)
-      row = floor(y / 1000)
-      name = (col + 200) * 1000 + (row + 301)
-
-  Checked against every one of the 91196 tiles in DGT's published index
-  (`LiDAR2024_2025_Secciona.gpkg`, a GeoPackage, so plain SQLite) with no
-  mismatches, and every tile exactly 1000m square. Nothing needs shipping: the
-  index is a formula, and whether a tile was actually flown comes from `/info`,
-  which reports `exists` (about 8800 of the 91196 were not).
-
-  That module also carries the ETRS89 / Portugal TM06 projection both ways, with
-  no dependency. End to end: Torre at 40.3217N 7.6136W projects to (44154, 72684),
-  which names tile LO-244373, which the service confirms and reports as belonging
-  to Covilha, Manteigas and Seia — the three municipalities that meet at the
-  summit.
-
-  **The point cloud is the wrong route.** DGT also publishes rasters, through a
-  STAC catalogue at `https://cdd.dgterritorio.gov.pt/dgt-be/v1/collections`,
-  which is public and needs no account to read:
+  **The route that works.** DGT publishes rasters through a STAC catalogue at
+  `https://cdd.dgterritorio.gov.pt/dgt-be/v1`, which is public and needs no
+  account to read:
 
       MDT-50cm, MDT-2m    terrain, bare earth
       MDS-50cm, MDS-2m    surface, including trees and buildings
@@ -272,66 +274,146 @@ informative way.
       ORTOS-1995..2025    orthophotos
       ACORES-*            the Azores
 
-  `/collections/MDT-50cm/items` returns STAC items whose ids embed the same tile
-  name (`MDT-50cm-197501-07-2025`), and each carries one asset: a Float32 GeoTIFF
-  in EPSG:3763, 2000x2000 pixels for a square kilometre, nodata -999, about 16MB.
-  That is twenty times smaller than the LAZ for the same ground and already
-  gridded, so laz-perf, octree traversal and ground classification all fall away.
-  The collection's `sectioning` field points at the very grid file the formula
-  above was checked against.
+  `POST /search` with a bbox and a collection returns STAC items whose ids embed
+  the tile name (`MDT-50cm-197501-07-2025`). Each carries one asset: a Float32
+  GeoTIFF in EPSG:3763, one square kilometre, nodata -999. 50cm tiles are
+  2000x2000 and 21.35MB; 2m tiles are 500x500 and about 1.33MB.
 
-  The catalogue is public; the objects are not. They sit in MinIO behind
-  `stor-002.a.acnca.pt:9000` and answer 403 without credentials, which is what
-  the site's cart and order system exists to provide.
+  **The tile index is a formula**, in `ptLidarGrid.js`. Tile names look opaque and
+  are not: they encode the tile's position on a one-kilometre grid in EPSG:3763.
 
-  That rules out fetching them from the deployed app, and not only because of the
-  403: personal credentials in a public web app would be handed to every visitor.
-  The two designs that work are loading a GeoTIFF the user has already ordered,
-  and mirroring ordered tiles to private storage the app owns.
+      col = floor(x / 1000)
+      row = floor(y / 1000)
+      name = (col + 200) * 1000 + (row + 301)
 
-  **Both halves are built.** `rasterMosaic.js` samples a set of projected rasters
-  as one surface, tolerating gaps, since a sheet routinely spans tiles that were
-  never flown. `ptLidarRaster.js` reads a GeoTIFF and samples it onto a sheet
-  through the same region the tiled path uses, so rotation and tilt carry over
-  untouched, and reports what fraction of the sheet the tiles actually cover.
-  What remains is only the plumbing: a file input, and a source entry.
+  Checked against all 91196 tiles in DGT's published index
+  (`LiDAR2024_2025_Secciona.gpkg`, plain SQLite) with no mismatches, every tile
+  exactly 1000m square. That module also carries the ETRS89 / Portugal TM06
+  projection both ways with no dependency: Torre at 40.3217N 7.6136W projects to
+  (44154, 72684), naming tile LO-244373, which the service confirms belongs to
+  Covilha, Manteigas and Seia — the three municipalities meeting at the summit.
+  A real file closed the loop: `MDT-50cm-238372-04-2024_v01.tif` is 2000x2000 at
+  exactly 0.500m, extent x 38000..39000 y 71000..72000, precisely what
+  `tileBounds` predicts from the name.
 
-  **Logging in from the app itself does not work, and it was worth checking.**
-  Per-visitor login would be perfectly sound in principle: each person using
-  their own account leaks nothing, and is how any OAuth app behaves. Keycloak
-  refuses it. The client is `aai-oidc-dgt` and its only registered redirect is
-  `https://cdd.dgterritorio.gov.pt/auth/callback`; an authorization request
-  naming any other origin answers 400, while the registered one answers with the
-  login form. The redirect-free route is closed too: a direct grant answers
-  `unauthorized_client`, which is about the client rather than the credentials,
-  so the flow is either disabled or needs a secret a public page cannot hold.
-  Only DGT can change this, by registering another redirect URI.
+  **The minting endpoint is `/dgt-be/v1/download/<sha256>`, and the public search
+  hands it to you.** Each asset `href` is that URL, not a bucket path, and no
+  account is needed to read it — which is why adding to the cart works logged
+  out. Logged out, a GET answers `302 -> /auth/login`; logged in, the same GET
+  answers `302 -> <presigned URL>`. *The redirect is the mint.* A HAR of a real
+  download appears to contain no minting call because DevTools does not log the
+  `<a download>` navigation, only the presigned request it redirects to. That
+  absence is misleading and cost an afternoon.
 
-  **Downloads are S3 presigned URLs**, settled from a HAR of a real download. The
-  request carried no cookie and no Authorization header: the signature is in the
-  query string, `X-Amz-Expires` is 3600, and `X-Amz-SignedHeaders` is `host`
-  alone. So a presigned link works from any origin with no credentials, and the
-  store already reflects whatever origin asks. Fetching tiles from this app is
-  therefore possible; only obtaining the signature is not, since the API that
-  mints it sends no `Access-Control-Allow-Origin` for any origin at all, being
-  only ever called same-origin.
+  Presigned URLs last an hour (`X-Amz-Expires: 3600`), sign only `host`, and
+  carry no `X-Amz-Security-Token` — so a static MinIO key signs them
+  server-side, not temporary credentials held by the browser. Nothing signs
+  anything client-side: all nine scripts in that HAR were checked and none
+  contains `aws4_request`, `hmac`, or a key.
 
-  That splits the problem cleanly. Discovery is public: `/search` will name the
-  tiles covering a place without an account. Fetching is open, given a signature.
-  Only the minting is closed. So the app can always say which tiles are needed,
-  and take them either as pasted presigned URLs, good for an hour, or as files.
+  **Why a page cannot do this, and a script can.** CORS is a rule browsers impose
+  on themselves; the server blocks nothing. `/dgt-be/v1` sends no
+  `Access-Control-Allow-Origin` for any origin, so a page cannot call it — its
+  preflight answers 204 with allow-credentials and allow-methods but no
+  allow-origin, which a browser rejects. `curl`, the QGIS plugin and
+  `scripts/fetchLidar.mjs` send no `Origin` and never ask. The object store
+  itself does reflect any origin, so a presigned URL *is* fetchable from a page;
+  only obtaining one is closed.
 
-  A real tile validated the reader and the grid formula together:
-  `MDT-50cm-238372-04-2024_v01.tif` is 2000x2000 at exactly 0.500m, nodata -999,
-  extent x 38000..39000 y 71000..72000, which is precisely what `tileBounds`
-  predicts from the name.
+  **Per-visitor login does not work, and it was worth checking.** Each person
+  using their own account would leak nothing and is how any OAuth app behaves.
+  Keycloak refuses it: the client is `aai-oidc-dgt` and its only registered
+  redirect is `https://cdd.dgterritorio.gov.pt/auth/callback`. An authorization
+  request naming any other origin answers 400. A direct grant answers
+  `unauthorized_client`, which is about the client rather than the credentials.
+  Only DGT can change this. The QGIS plugin sidesteps it by using DGT's own
+  callback and following the redirect itself — legal for a script, impossible for
+  a page, which would need to land somewhere it controls.
 
-  The authentication, for whoever writes the fetcher, is Keycloak at
-  `auth.cdd.dgterritorio.gov.pt/realms/dgterritorio`, an ordinary authorization
-  code flow whose session cookie then authorises the object store directly. There
-  are no tokens and no presigned URLs. The QGIS plugin `qgispt/dgtcd_downer` does
-  exactly this and is worth reading; note it waits five seconds between downloads
-  and revalidates every ten, which is a courtesy worth keeping. Credentials belong
-  in a local script reading `.env`, never in anything that ships to a browser.
+  **Licence trap: STAC says `proprietary`, and it is wrong.** All five LiDAR
+  collections report `license: "proprietary"` and `summaries.access: ["private"]`.
+  That is STAC 1.0's placeholder for "not an SPDX id", left unfilled, and
+  `access` describes the download gate rather than the terms. Every collection's
+  `metadataLink` points at one INSPIRE record
+  (`077a8c94-8b46-4a8a-8796-0d7fc4662f0c`), which states *Acesso publico sem
+  restricoes* and CC-BY-4.0. **The INSPIRE record governs.** Redistribution is
+  permitted with attribution, which is what makes mirroring tiles legal at all.
+  Keep `ATTRIBUTION` from `ptLidarCatalog.js` with anything served from a cache.
+  Do not trust the STAC field; this repo talked itself out of the correct licence
+  once already on the strength of it.
+
+  **The point cloud is the wrong route**, though it works. `portugal3d.dgterritorio.gov.pt`
+  is CORS-open, accepts `Range`, and exposes `/info/{id}`, `/laz/meta/{file}`,
+  `/laz/{file}`, `/search/position/{lat},{lon}` and `/search/place/{name}`.
+  `/continente/LO-235379` gives `LO-235379-04-2024_v01.laz`, 323MB for one tile.
+  Against that, the raster for the same ground is twenty times smaller and
+  already gridded, so laz-perf, octree traversal and ground classification all
+  fall away. The other DGT channels are dead ends outright: WCS is switched off,
+  the WMS serves a coloured picture, and the INSPIRE ATOM download is 50m
+  hypsometry, coarser than Terrarium.
+
+### Portugal LiDAR: what is built
+
+- `ptLidarCatalog.js` names the tiles a sheet needs from the public search and
+  chooses the collection: 50cm only below about 600m across, 2m up to 2.3km,
+  nothing finer above that, because past three samples per millimetre the pen is
+  the limit. A 2m tile is sixteen times smaller, so this choice is most of the
+  storage budget.
+- `rasterMosaic.js` samples a set of projected rasters as one surface, tolerating
+  gaps, since a sheet routinely spans tiles that were never flown.
+  `ptLidarRaster.js` reads a GeoTIFF and samples it onto a sheet through the same
+  region the tiled path uses, so rotation and tilt carry over untouched, and
+  reports what fraction of the sheet the tiles actually cover.
+- `lidarCache.js` fetches tiles from a configured base URL and matches dropped
+  files to the sheet, tolerating the `_v01` suffix filenames carry and ids do
+  not. **Cache keys are the full item id, never the grid number**: tiles get
+  reflown, and `236380` alone would silently serve superseded data.
+- **The cache needs no S3 API.** The client does `GET <base>/<item-id>.tif`,
+  anonymous, with CORS. No listing, no auth, no signing, no multipart. MinIO,
+  Garage and SeaweedFS are all machinery for an interface this never calls; a
+  static file server is the whole requirement. The base is a runtime setting
+  (`appState.lidarCacheUrl`, remembered in `localStorage`), with
+  `VITE_LIDAR_CACHE_URL` only supplying its default, so one deployed page can be
+  pointed at a bucket or at a machine on the LAN without a rebuild.
+- `LidarPanel.vue` lists the tiles a sheet needs, links each to DGT for the user
+  to fetch signed in, and takes dropped files.
+- `scripts/fetchLidar.mjs` fills a local cache, with `scripts/dgtAuth.mjs` doing
+  the Keycloak flow. `npm run lidar:list` prints the budget. Credentials come
+  from `.env`, gitignored, and never from anything bundled.
+- The worker takes `lidarTiles` and decodes with a dynamic `import('geotiff')`.
+  That is why `vite.config.js` sets `worker.format = 'es'`: the default IIFE
+  cannot code-split, and the 221KB of decoder should not load for everyone.
+
+  Politeness, measured from the QGIS plugin rather than guessed: 0.2s between
+  downloads, session revalidation every 10 files, 5s between *retries*. An
+  earlier note in this file said 5s between downloads; that was wrong.
+
+### Portugal LiDAR: next
+
+- **Draw trees and buildings alongside the terrain.** `nDSM = MDS - MDT` gives
+  height above ground; the two products share a grid, a tiling and a projection,
+  so it is a per-pixel subtraction with no resampling. Threshold around 2m, run
+  the existing marching squares on the mask, and emit building footprints and
+  canopy outlines into their own SVG layer with their own pen, exactly as the GPX
+  layer works. Buildings and vegetation separate on local planarity: roofs are
+  flat, canopy is rough. Costs double the tiles for that ground.
+- **Mirroring to R2 is designed but deliberately not switched on.** Egress is
+  free and storage is $0.015/GB-month past 10GB (10GB-month free), so all 61GB
+  of the local mirror would be $0.77 a month. Reads are Class B with 10 million
+  free per month, and a sheet pulls tens of tiles, so they never bill. Fill it
+  lazily from real use rather than bulk-scraping the country: the licence permits
+  the latter, courtesy does not.
+
+- **Serving the tiles from home through a Cloudflare Tunnel is against the CDN
+  terms.** The content restriction moved out of the Self-Serve Subscription
+  Agreement into the Application Services service-specific terms, and it lets
+  Cloudflare limit the CDN where it is used "to serve video or a disproportionate
+  percentage of pictures, audio files, or other large files" — on Free, Pro and
+  Business alike. The stated exception is content served through the Developer
+  Platform, Images or Stream, which is what makes **R2 the sanctioned route** for
+  exactly this. There is no way around it with a tunnel: `cloudflared` always
+  egresses through Cloudflare's edge, so a tunnelled hostname is proxied by
+  definition — there is no grey-cloud tunnel. Serving from a LAN-only hostname
+  that Cloudflare never fronts is fine, because the CDN is not in the path.
+
 - 2-opt path refinement. The sort interface is open for it.
-- National high-resolution DEM services.
