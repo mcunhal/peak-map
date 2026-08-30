@@ -386,3 +386,56 @@ describe('regionRowScales', () => {
     for (let y = 0; y < 140; ++y) expect(over[y]).toBeCloseTo(bare[y], 6);
   });
 });
+
+describe('sample centres against sample corners', () => {
+  /** A north-up, a rotated and a tilted sheet, so the result is not a special case. */
+  async function sheets() {
+    const { createRegion, regionFromBbox } = await import('./tileMath');
+    return {
+      'north-up': regionFromBbox({ west: -7.78, south: 40.20, east: -7.42, north: 40.45 }),
+      rotated: createRegion({
+        nw: { lng: -7.78, lat: 40.45 },
+        ne: { lng: -7.44, lat: 40.40 },
+        sw: { lng: -7.74, lat: 40.19 },
+      }),
+      tilted: createRegion({
+        nw: { lng: -7.90, lat: 40.47 },
+        ne: { lng: -7.30, lat: 40.47 },
+        sw: { lng: -7.74, lat: 40.19 },
+        se: { lng: -7.46, lat: 40.19 },
+      }),
+    };
+  }
+
+  it('round-trips a sample centre on every shape of sheet', async () => {
+    for (const region of Object.values(await sheets())) {
+      for (const [x, y] of [[0, 0], [450, 310], [899, 619], [899, 0]]) {
+        const g = region.sampleToLngLat(900, 620, x, y);
+        const back = region.sampleFromLngLat(900, 620, g.lng, g.lat);
+        expect(back.x).toBeCloseTo(x, 6);
+        expect(back.y).toBeCloseTo(y, 6);
+      }
+    }
+  });
+
+  it('sits half a sample inside the corner mapping', async () => {
+    // Both conventions are wanted and must stay distinct: the corner pair maps
+    // the sheet's outer boundary, which is what measures its extent, and the
+    // centre pair says which sample a place belongs to.
+    const region = (await sheets())['north-up'];
+    const centre = region.sampleToLngLat(900, 620, 10, 20);
+
+    const asCorner = region.fromLngLat(900, 620, centre.lng, centre.lat);
+    expect(asCorner.x).toBeCloseTo(10.5, 6);
+    expect(asCorner.y).toBeCloseTo(20.5, 6);
+  });
+
+  it('leaves the plain pair exact inverses, which the compass depends on', async () => {
+    for (const region of Object.values(await sheets())) {
+      const g = region.toLngLat(900, 620, 123.4, 456.7);
+      const back = region.fromLngLat(900, 620, g.lng, g.lat);
+      expect(back.x).toBeCloseTo(123.4, 6);
+      expect(back.y).toBeCloseTo(456.7, 6);
+    }
+  });
+});

@@ -117,7 +117,7 @@ export async function buildHeightField({
   for (let y = 0; y < fieldHeight; ++y) {
     for (let x = 0; x < fieldWidth; ++x) {
       // Sample at pixel centres so the field is not biased half a cell north-west.
-      const { lng, lat } = region.toLngLat(fieldWidth, fieldHeight, x + 0.5, y + 0.5);
+      const { lng, lat } = region.sampleToLngLat(fieldWidth, fieldHeight, x, y);
 
       const globalX = lngToTileX(lng, chosenZoom);
       const globalY = latToTileY(lat, chosenZoom);

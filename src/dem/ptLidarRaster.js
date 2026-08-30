@@ -80,7 +80,7 @@ export function buildHeightFieldFromRasters({
   for (let y = 0; y < fieldHeight; ++y) {
     for (let x = 0; x < fieldWidth; ++x) {
       // Pixel centres, so the field is not biased half a cell.
-      const { lng, lat } = region.toLngLat(fieldWidth, fieldHeight, x + 0.5, y + 0.5);
+      const { lng, lat } = region.sampleToLngLat(fieldWidth, fieldHeight, x, y);
       const p = lngLatToTM06(lng, lat);
       data[y * fieldWidth + x] = mosaic.sampleAt(p.x, p.y);
     }

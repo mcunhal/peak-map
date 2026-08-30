@@ -36,7 +36,15 @@ export function projectTrack(track, field, { minHeight, displacementPerMetre, ro
 
   const flat = [];
   for (const point of track.points) {
-    const { x, y } = region.fromLngLat(field.width, field.height, point.lon, point.lat);
+    // Sample centres, because that is where the height field's samples are.
+    // The plain inverse returns the sample's corner, which put every route half
+    // a sample right and down of the terrain it crosses.
+    const { x, y } = region.sampleFromLngLat(
+      field.width,
+      field.height,
+      point.lon,
+      point.lat
+    );
     flat.push(x, y);
   }
 

@@ -198,6 +198,32 @@ export function createRegion({ nw, ne, sw, se = null }) {
         y: ((iD * X + iE * Y + iF) / w) * fieldHeight,
       };
     },
+
+    /**
+     * The same mapping in sample centres rather than sample corners.
+     *
+     * A height field holds the ground at the *centre* of each sample, so those
+     * are the positions it was filled from and the positions anything placed
+     * against it has to use. The plain pair above maps the sheet's outer
+     * boundary, where sample 0 starts at the very edge — right for measuring
+     * the sheet's extent, and half a sample out for saying which cell a place
+     * belongs to.
+     *
+     * Both are kept, and named, because both are wanted. Collapsing them cost
+     * a real bug: the terrain was sampled at centres and GPX tracks placed at
+     * corners, so every route sat half a sample right and down of the ground it
+     * crossed — 0.65mm on an A3 at detail 300, wider than the pen drawing it.
+     * The plain pair must also stay exact inverses of each other, because the
+     * compass projects page to ground and back through them.
+     */
+    sampleToLngLat(fieldWidth, fieldHeight, x, y) {
+      return this.toLngLat(fieldWidth, fieldHeight, x + 0.5, y + 0.5);
+    },
+
+    sampleFromLngLat(fieldWidth, fieldHeight, lng, lat) {
+      const p = this.fromLngLat(fieldWidth, fieldHeight, lng, lat);
+      return { x: p.x - 0.5, y: p.y - 0.5 };
+    },
   };
 }
 

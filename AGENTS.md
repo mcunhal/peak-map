@@ -130,6 +130,23 @@ does. `main.js` gets the corners by unprojecting the sheet's screen rectangle,
 which settles angle and aspect together. Both the terrain and the GPX tracks must
 go through the same region or they will disagree.
 
+**And through the same end of it.** A region carries two mappings, and they are
+half a sample apart. `toLngLat`/`fromLngLat` map the sheet's outer boundary, so
+sample 0 begins at the very edge; `sampleToLngLat`/`sampleFromLngLat` map sample
+*centres*, which is where a height field's values actually live. Anything filling
+a field, or placing something against one, wants the centre pair — the plain pair
+is for measuring the sheet's extent, and for the compass, which projects page to
+ground and back and needs the two to be exact inverses.
+
+Getting this wrong is quiet and uniform. The terrain was sampled at centres while
+GPX tracks were placed at corners, so every route sat half a sample right and
+down of the ground it crossed, on north-up, rotated and tilted sheets alike. Half
+a sample is 0.98mm on an A3 at detail 200 and 0.65mm at 300 — wider than the pen
+drawing it — and it shrinks as detail rises, which makes it read as a vague
+inaccuracy rather than a constant offset. No test caught it because the fixtures
+built their tracks from the same corner convention the bug used; assert a track
+lands on the sample it stands on, not merely that it round-trips.
+
 **Occlusion is depth-ordered.** A track point is hidden only by terrain nearer
 than it. `scene.js` decides visibility in depth order and emits geometry in route
 order, because a route weaves back and forth in depth and cannot be walked with a
@@ -169,7 +186,7 @@ a fill; never `stroke-dasharray`. Tests assert all of it.
 ## Running things
 
 ```bash
-npm test          # 575 tests, offline, ~3s
+npm test          # 579 tests, offline, ~3s
 npm run dev
 npm run deploy    # builds and pushes to Cloudflare
 ```

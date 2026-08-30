@@ -47,6 +47,24 @@ describe('projectTrack', () => {
     for (const p of projected) expect(p.y).toBeCloseTo(p.row - 20, 5);
   });
 
+  it('places a track on the very sample it stands on', () => {
+    // The height field is filled by sampling the ground at each sample's
+    // *centre*. A track placed by the plain inverse lands on the sample's
+    // corner instead, which puts every route half a sample right and down of
+    // the terrain it belongs to — 0.65mm on an A3 at detail 300.
+    const f = field(40, 40, () => 0);
+    const { lng, lat } = fieldToLngLat(BBOX, f.width, f.height, 12 + 0.5, 7 + 0.5);
+
+    const [p] = projectTrack(
+      { name: 't', points: [{ lat, lon: lng, ele: null }] },
+      f,
+      { minHeight: 0, displacementPerMetre: 0 }
+    );
+
+    expect(p.x).toBeCloseTo(12, 6);
+    expect(p.row).toBeCloseTo(7, 6);
+  });
+
   it('drops points outside the field', () => {
     const f = field(20, 20, () => 100);
     const track = { name: 'x', points: [{ lat: 60, lon: 0, ele: null }] };
