@@ -29,30 +29,59 @@ export const TRACK_MODES = ['hidden', 'visible', 'dotted'];
  * surface, using the same displacement the ridge lines use so that it sits on them
  * rather than floating over them.
  */
-export function projectTrack(track, field, { minHeight, displacementPerMetre }) {
-  const projected = [];
-
+export function projectTrack(track, field, { minHeight, displacementPerMetre, rowScale }) {
   // Placing a track has to use the same mapping the terrain was sampled with,
   // rotation included, or a turned sheet puts the route somewhere else entirely.
   const region = field.region || regionFromBbox(field.bbox);
 
+  const flat = [];
   for (const point of track.points) {
     const { x, y } = region.fromLngLat(field.width, field.height, point.lon, point.lat);
+    flat.push(x, y);
+  }
+
+  return projectFieldPolyline(flat, field, { minHeight, displacementPerMetre, rowScale });
+}
+
+/**
+ * Lift a polyline that is already in field coordinates onto the drawn surface.
+ *
+ * This is what a track becomes once it has been placed, and it is also what a
+ * planar algorithm produces to begin with. Contours, hachures and streamlines
+ * are all computed flat, so draping one over the relief is only this step: the
+ * line keeps the row it was computed on as its depth, and is displaced upwards
+ * by the terrain beneath it, exactly as `drawTerrainRow` displaces the ground.
+ *
+ * @param {number[]} points - a flat [x0, y0, x1, y1, ...] polyline in samples
+ */
+export function projectFieldPolyline(
+  points,
+  field,
+  { minHeight, displacementPerMetre, rowScale }
+) {
+  const projected = [];
+
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    const x = points[i];
+    const y = points[i + 1];
     if (x < 0 || y < 0 || x > field.width || y > field.height) continue;
 
-    // Ride the rendered surface rather than the elevation recorded by the GPS.
-    // The two disagree by metres, and a route that fails to touch the ridge it
-    // crosses reads as a mistake.
+    // Ride the rendered surface rather than any elevation carried by the line.
+    // For a GPX track the two disagree by metres, and a route that fails to
+    // touch the ridge it crosses reads as a mistake.
+    const roundedY = Math.min(field.height - 1, Math.max(0, Math.round(y)));
     const elevation = field.get(
       Math.min(field.width - 1, Math.max(0, Math.round(x))),
-      Math.min(field.height - 1, Math.max(0, Math.round(y)))
+      roundedY
     );
     if (isNoData(elevation)) continue;
+
+    const lift = displacementPerMetre * (rowScale ? rowScale[roundedY] : 1);
 
     projected.push({
       x,
       row: y,
-      y: y - (elevation - minHeight) * displacementPerMetre,
+      y: y - (elevation - minHeight) * lift,
       visible: true,
     });
   }
@@ -155,6 +184,11 @@ export function renderRidgelineScene(field, options = {}) {
     trackMode = 'dotted',
     dotPitch = 2,
     dotLength = 0.6,
+    // Planar linework to hang on the same surface, already in field samples.
+    drapes = [],
+    // False draws the rows into the occlusion buffer without emitting them, so
+    // drapes can be hidden by relief that is not itself on the sheet.
+    emitTerrain = true,
   } = options;
 
   if (!TRACK_MODES.includes(trackMode)) {
@@ -165,7 +199,11 @@ export function renderRidgelineScene(field, options = {}) {
 
   const range = computeRange(field);
   if (range.isEmpty) {
-    return { terrain: [], tracks: tracks.map((t) => ({ name: t.name, polylines: [] })) };
+    return {
+      terrain: [],
+      tracks: tracks.map((t) => ({ name: t.name, polylines: [] })),
+      drapes: drapes.map((d) => ({ id: d.id, polylines: [] })),
+    };
   }
 
   if (tracks.length && !field.region && !field.bbox) {
@@ -180,31 +218,56 @@ export function renderRidgelineScene(field, options = {}) {
   const rowScale = regionRowScales(field.region, width, height);
   const buffer = occlude ? createOcclusionBuffer(width, height) : null;
 
+  // Drapes are cut against the ground itself rather than against the strokes
+  // drawn on it, and that needs a horizon of its own.
+  //
+  // The terrain buffer only knows the rows that were drawn. That is right for
+  // the ridge lines, which hide each other, but a contour lies on the ground
+  // *between* them: every nearer stroke that crests above it clips it, and the
+  // contour comes out as dashes whose number follows the line count rather than
+  // the terrain. Raising the line count made it worse, not better — 105 pieces
+  // at 10 rows, 837 at 120, and back to 80 once every row was drawn. So the
+  // drape horizon is built from every field row, which also means changing the
+  // line count no longer changes which contours are visible.
+  const surface = buffer && drapes.length ? createOcclusionBuffer(width, height) : null;
+
   const rowCountDrawn = rows.length;
 
   const projected = tracks.map((track) =>
-    projectTrack(track, field, { minHeight, displacementPerMetre })
+    projectTrack(track, field, { minHeight, displacementPerMetre, rowScale })
   );
 
-  // File every track point under the iteration that must precede its test: the one
-  // by which every nearer row has been drawn, and no further row has.
+  // A drape is a whole family of lines rather than one route, but each of its
+  // polylines is tested exactly as a track is: same surface, same buffer, same
+  // depth order. Only the way it arrives differs.
+  const projectedDrapes = drapes.map((drape) =>
+    (drape.polylines || []).map((line) =>
+      projectFieldPolyline(line, field, { minHeight, displacementPerMetre, rowScale })
+    )
+  );
+
+  // File every projected point under the iteration that must precede its test: the
+  // one by which every nearer row has been drawn, and no further row has.
   const buckets = Array.from({ length: rowCountDrawn + 1 }, () => []);
-  projected.forEach((points) => {
+  const file = (points) => {
     for (const point of points) {
       // Rows run nearest-first from the bottom edge, so a point belongs to the
       // bucket tested once every nearer row has been drawn.
       const index = Math.ceil((height - 1 - point.row) / spacing);
       buckets[Math.min(rowCountDrawn, Math.max(0, index))].push(point);
     }
-  });
+  };
+  projected.forEach(file);
 
   const terrain = [];
 
+  occludeDrapes();
+
   for (let i = 0; i < rowCountDrawn; ++i) {
-    testTrackPoints(buckets[i]);
+    testSurfacePoints(buckets[i]);
     drawTerrainRow(rows[i]);
   }
-  testTrackPoints(buckets[rowCountDrawn]);
+  testSurfacePoints(buckets[rowCountDrawn]);
 
   return {
     terrain,
@@ -212,13 +275,58 @@ export function renderRidgelineScene(field, options = {}) {
       name: track.name,
       polylines: splitByVisibility(projected[i], trackMode, dotPitch, dotLength),
     })),
+    // Draped linework has no dotted mode: a contour is either on the visible
+    // face of the terrain or it is behind it, and drawing the hidden part as
+    // dots would be inventing a feature the ground does not have.
+    drapes: drapes.map((drape, i) => ({
+      id: drape.id,
+      polylines: projectedDrapes[i].flatMap((points) =>
+        splitByVisibility(points, 'hidden', dotPitch, dotLength)
+      ),
+    })),
   };
 
   /**
-   * A track never marks the occlusion buffer. It is a line painted on the surface,
-   * and it does not hide the terrain behind it.
+   * Walk the ground from the near edge back, deciding each drape point the
+   * moment every row nearer than it has been laid down and none further has.
+   *
+   * The same depth order the terrain rows are drawn in, at every row rather than
+   * only the drawn ones. A drape marks nothing: it is paint on the surface.
    */
-  function testTrackPoints(points) {
+  function occludeDrapes() {
+    if (!surface) return;
+
+    const byRow = Array.from({ length: height }, () => []);
+    for (const lines of projectedDrapes) {
+      for (const points of lines) {
+        for (const point of points) {
+          const row = Math.min(height - 1, Math.max(0, Math.ceil(point.row)));
+          byRow[row].push(point);
+        }
+      }
+    }
+
+    for (let y = height - 1; y >= 0; --y) {
+      for (const point of byRow[y]) {
+        const column = Math.round(point.x);
+        point.visible =
+          column >= 0 && column < surface.width && surface.isVisible(column, point.y);
+      }
+
+      const lift = displacementPerMetre * (rowScale ? rowScale[y] : 1);
+      for (let x = 0; x < width; ++x) {
+        const elevation = field.get(x, y);
+        if (isNoData(elevation) || elevation <= oceanLevel) continue;
+        surface.mark(x, y - (elevation - minHeight) * lift);
+      }
+    }
+  }
+
+  /**
+   * Neither a track nor a drape marks the occlusion buffer. Both are lines
+   * painted on the surface, and neither hides the terrain behind it.
+   */
+  function testSurfacePoints(points) {
     if (!buffer) return;
     for (const point of points) {
       const column = Math.round(point.x);
@@ -235,19 +343,19 @@ export function renderRidgelineScene(field, options = {}) {
     for (let x = 0; x < width; ++x) {
       const elevation = field.get(x, y);
       if (isNoData(elevation) || elevation <= oceanLevel) {
-        if (run.length >= 4) emitTerrain(run);
+        if (run.length >= 4) emitTerrainRun(run);
         run = [];
         continue;
       }
       run.push(x, y - (elevation - minHeight) * lift);
     }
-    if (run.length >= 4) emitTerrain(run);
+    if (run.length >= 4) emitTerrainRun(run);
   }
 
-  function emitTerrain(points) {
+  function emitTerrainRun(points) {
     const smoothed = smoothPolyline(points, smoothSteps);
     if (!buffer) {
-      terrain.push(smoothed);
+      if (emitTerrain) terrain.push(smoothed);
       return;
     }
 
@@ -267,10 +375,10 @@ export function renderRidgelineScene(field, options = {}) {
         if (!current) current = [];
         current.push(x, py);
       } else if (current) {
-        if (current.length >= 4) terrain.push(current);
+        if (current.length >= 4 && emitTerrain) terrain.push(current);
         current = null;
       }
     }
-    if (current && current.length >= 4) terrain.push(current);
+    if (current && current.length >= 4 && emitTerrain) terrain.push(current);
   }
 }

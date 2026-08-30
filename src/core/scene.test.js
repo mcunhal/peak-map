@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { renderRidgelineScene, projectTrack, dotsAlong, splitByVisibility } from './scene';
+import {
+  renderRidgelineScene,
+  projectTrack,
+  projectFieldPolyline,
+  dotsAlong,
+  splitByVisibility,
+} from './scene';
 import { createHeightField, NODATA } from './heightField';
 import { fieldToLngLat } from '../dem/tileMath';
 
@@ -228,5 +234,164 @@ describe('renderRidgelineScene', () => {
     expect(() =>
       renderRidgelineScene(noBbox, { tracks: [{ name: 'x', points: [] }] })
     ).toThrow(/bounding box/i);
+  });
+});
+
+
+describe('projectFieldPolyline', () => {
+  it('lifts the line by the terrain under it', () => {
+    const f = field(40, 40, (x, y) => (y < 20 ? 0 : 1000));
+    const line = [];
+    for (let x = 2; x < 38; ++x) line.push(x, 30);
+
+    const projected = projectFieldPolyline(line, f, {
+      minHeight: 0,
+      displacementPerMetre: 0.02,
+    });
+
+    expect(projected).toHaveLength(36);
+    // Terrain there is 1000m, so displacement is 20 samples above row 30.
+    for (const p of projected) expect(p.y).toBeCloseTo(p.row - 20, 9);
+  });
+
+  it('keeps the drawn row as the depth, so the line is occluded where it lies', () => {
+    const f = field(40, 40, () => 1000);
+    const projected = projectFieldPolyline([5, 12, 6, 12], f, {
+      minHeight: 0,
+      displacementPerMetre: 0.02,
+    });
+    for (const p of projected) expect(p.row).toBe(12);
+  });
+
+  it('applies the same per-row perspective scale the terrain uses', () => {
+    const f = field(40, 40, () => 1000);
+    const rowScale = new Float64Array(40).fill(1);
+    rowScale[10] = 0.5;
+
+    const flat = projectFieldPolyline([5, 10, 6, 10], f, {
+      minHeight: 0,
+      displacementPerMetre: 0.02,
+    });
+    const scaled = projectFieldPolyline([5, 10, 6, 10], f, {
+      minHeight: 0,
+      displacementPerMetre: 0.02,
+      rowScale,
+    });
+
+    expect(flat[0].y).toBeCloseTo(10 - 20, 9);
+    expect(scaled[0].y).toBeCloseTo(10 - 10, 9);
+  });
+
+  it('drops points over nodata', () => {
+    const f = field(20, 20, () => NODATA);
+    expect(
+      projectFieldPolyline([5, 5, 6, 5], f, { minHeight: 0, displacementPerMetre: 0 })
+    ).toHaveLength(0);
+  });
+});
+
+describe('renderRidgelineScene draping', () => {
+  const opts = (over = {}) => ({
+    rowCount: 20,
+    heightScale: 30,
+    smoothSteps: 0,
+    occlude: true,
+    trackMode: 'visible',
+    ...over,
+  });
+
+  /** A flat-space polyline running along one field row. */
+  const alongRow = (row, fromX, toX) => {
+    const line = [];
+    for (let x = fromX; x <= toX; ++x) line.push(x, row);
+    return line;
+  };
+
+  it('returns one entry per drape, keyed by its id', () => {
+    const f = field(40, 40, () => 500);
+    const scene = renderRidgelineScene(f, {
+      ...opts(),
+      drapes: [
+        { id: 'contours', polylines: [alongRow(20, 2, 37)] },
+        { id: 'hachures', polylines: [alongRow(25, 2, 37)] },
+      ],
+    });
+
+    expect(scene.drapes.map((d) => d.id)).toEqual(['contours', 'hachures']);
+  });
+
+  it('lifts a drape onto the surface the terrain rows are drawn on', () => {
+    // Flat ground everywhere but a plateau: the drape must ride the plateau.
+    const f = field(40, 40, (x, y) => (x < 20 ? 0 : 1000));
+    const scene = renderRidgelineScene(f, {
+      ...opts({ heightScale: 20, occlude: false }),
+      drapes: [{ id: 'contours', polylines: [alongRow(30, 2, 37)] }],
+    });
+
+    const drawn = scene.drapes[0].polylines[0];
+    // heightScale 20 over a 1000m range displaces 0.02 samples per metre.
+    for (let i = 0; i < drawn.length; i += 2) {
+      const expected = drawn[i] < 20 ? 30 : 30 - 20;
+      expect(drawn[i + 1]).toBeCloseTo(expected, 6);
+    }
+  });
+
+  it('cuts the part of a drape that a nearer ridge hides', () => {
+    // The near half stands 1000m tall and is drawn first; the far half is flat
+    // ground, and every screen row it would occupy is already taken.
+    const f = field(40, 40, (x, y) => (y >= 20 ? 1000 : 0));
+    const scene = renderRidgelineScene(f, {
+      ...opts({ heightScale: 20 }),
+      drapes: [{ id: 'contours', polylines: [alongRow(10, 2, 37)] }],
+    });
+
+    expect(pointCount(scene.drapes[0].polylines)).toBe(0);
+  });
+
+  it('draws the part of a drape that nothing hides', () => {
+    const f = field(40, 40, (x, y) => (y >= 20 ? 1000 : 0));
+    const scene = renderRidgelineScene(f, {
+      ...opts({ heightScale: 20 }),
+      drapes: [{ id: 'contours', polylines: [alongRow(35, 2, 37)] }],
+    });
+
+    expect(pointCount(scene.drapes[0].polylines)).toBeGreaterThan(0);
+  });
+
+  it('lets a drape be hidden by terrain without hiding terrain itself', () => {
+    const f = field(60, 60, (x, y) => 500 + 300 * Math.sin(y / 8));
+    const without = renderRidgelineScene(f, opts());
+    const with_ = renderRidgelineScene(f, {
+      ...opts(),
+      drapes: [{ id: 'contours', polylines: [alongRow(30, 2, 57)] }],
+    });
+
+    expect(with_.terrain).toEqual(without.terrain);
+  });
+
+  it('occludes drapes without drawing the terrain when asked not to emit it', () => {
+    const f = field(40, 40, (x, y) => (y >= 20 ? 1000 : 0));
+    const scene = renderRidgelineScene(f, {
+      ...opts({ heightScale: 20, emitTerrain: false }),
+      drapes: [
+        { id: 'far', polylines: [alongRow(10, 2, 37)] },
+        { id: 'near', polylines: [alongRow(35, 2, 37)] },
+      ],
+    });
+
+    expect(scene.terrain).toEqual([]);
+    expect(pointCount(scene.drapes[0].polylines)).toBe(0);
+    expect(pointCount(scene.drapes[1].polylines)).toBeGreaterThan(0);
+  });
+
+  it('needs no bounding box to drape, because drapes are already in field space', () => {
+    const data = new Float32Array(1600).fill(100);
+    const noBbox = createHeightField({ width: 40, height: 40, data });
+    expect(() =>
+      renderRidgelineScene(noBbox, {
+        ...opts(),
+        drapes: [{ id: 'contours', polylines: [alongRow(20, 2, 37)] }],
+      })
+    ).not.toThrow();
   });
 });

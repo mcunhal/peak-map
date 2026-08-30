@@ -30,7 +30,7 @@ const NICE_INTERVALS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000]
  * @param {number} [options.count]    - desired number of contours
  * @param {number} [options.base]     - align levels to this elevation
  */
-export function chooseLevels(field, { interval = null, count = 25, base = 0 } = {}) {
+export function chooseLevels(field, { interval = null, count = 25, base = 0, oceanLevel = -Infinity } = {}) {
   const range = computeRange(field);
   if (range.isEmpty || range.heightRange <= 0) return [];
 
@@ -43,8 +43,9 @@ export function chooseLevels(field, { interval = null, count = 25, base = 0 } = 
   const levels = [];
   // Strictly above the minimum: a contour sitting exactly on the lowest value
   // traces the edge of every flat area rather than a feature of the terrain.
-  let first = Math.ceil((range.minHeight - base) / step) * step + base;
-  if (first <= range.minHeight) first += step;
+  const lowestAllowed = Math.max(range.minHeight, oceanLevel);
+  let first = Math.ceil((lowestAllowed - base) / step) * step + base;
+  if (first <= lowestAllowed) first += step;
   for (let level = first; level < range.maxHeight; level += step) {
     levels.push(level);
   }

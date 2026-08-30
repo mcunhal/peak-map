@@ -37,14 +37,17 @@ export function buildLayers(scene, mapper, options = {}) {
   const {
     terrainPen = { color: '#161616', width: 0.3 },
     trackPens = [],
+    // Several algorithms can share one sheet, and each needs an id of its own:
+    // a plotter driven from these layers selects them by name.
+    terrainId = 'terrain',
   } = options;
 
   const layers = [];
 
   if (scene.terrain && scene.terrain.length) {
     layers.push({
-      id: 'terrain',
-      label: 'terrain',
+      id: terrainId,
+      label: terrainId,
       penColor: terrainPen.color,
       penWidth: terrainPen.width,
       polylines: scene.terrain.map((line) => mapper.polylineToMm(line)),
