@@ -73,15 +73,33 @@ no stored shape to keep compatible.
 
 ### 2. Line styles as geometry
 
-Generalise the dot generator:
+Add a second generator alongside the existing one:
 
 ```js
 dashAlong(points, pattern)   // pattern is [on, off, on, off, ...] in samples, cycling
 ```
 
-`dotsAlong(points, pitch, dotLength)` becomes a wrapper for
-`dashAlong(points, [dotLength, pitch - dotLength])`, so its existing callers and
-tests are untouched.
+**`dotsAlong` is kept as it is, not turned into a wrapper.** The two differ in a
+way that matters. `dotsAlong` clips each mark at the end of the polyline
+*segment* it starts in and resumes at the next mark position, so a mark never
+continues around a corner. At 0.3mm dots that is invisible. At a 1.8mm dash it is
+not: a GPX track recorded every few metres has segments shorter than the dash on
+paper, so every dash would be truncated to a segment and the style would come out
+as ragged specks.
+
+`dashAlong` therefore walks the run's arc length and emits each mark as a
+multi-point polyline that follows the route around corners.
+
+Keeping both is deliberate:
+
+- `solid` + `dotted` hidden runs call `dotsAlong`, unchanged, which is what makes
+  a default sheet byte-identical to today.
+- Every style pattern calls `dashAlong`.
+
+The cost is two generators. `dotsAlong` can be retired later by pointing the
+hidden run at `dashAlong` too, once a microscopic change to hidden dots at
+corners is acceptable — that is a one-line change and a fixture update, not a
+redesign.
 
 Presets, in millimetres:
 
