@@ -182,8 +182,6 @@ async function render(request, progress, stillCurrent) {
     pens,
     tracks,
     trackMode,
-    dotPitch: request.dotPitch,
-    dotLength: request.dotLength,
     drape,
     weightMode,
     weightPasses,

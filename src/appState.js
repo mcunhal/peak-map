@@ -77,8 +77,6 @@ const appState = {
   hatchAngle: 45,
   hatchSpacing: 0.9,
   hatchLevels: 4,
-  dotPitch: 0.9,
-  dotLength: 0.3,
 
   // --- page --------------------------------------------------------------
   paper: 'A3',
@@ -101,7 +99,7 @@ const appState = {
   compassPenWidth: 0.35,
 
   // --- gpx ---------------------------------------------------------------
-  tracks: [],
+  trackFiles: [],
   trackMode: 'dotted',
   trackModes: ['dotted', 'hidden', 'visible'],
 

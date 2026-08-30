@@ -12,6 +12,7 @@ import { buildRasterStyle } from './config';
 import { requestRender, isCancellation, cancelPending } from './renderService';
 import { drawPreview, formatMetrics } from './preview';
 import { parseGpx } from './gpx/parse';
+import { makeTrackFile, flattenForRequest } from './gpx/trackFiles';
 import { createPage } from './core/page';
 import { getAlgorithm } from './core/algorithms/index';
 
@@ -36,7 +37,7 @@ appState.exportToSVG = exportToSVG;
 appState.setBounds = setBounds;
 appState.listenToEvents = listenToEvents;
 appState.addGpxFiles = addGpxFiles;
-appState.removeTrack = removeTrack;
+appState.removeTrackFile = removeTrackFile;
 appState.redrawPreview = redrawPreview;
 
 function init() {
@@ -234,6 +235,9 @@ function currentSheet() {
 }
 
 function buildRequest(corners, overplot) {
+  // Files carry the styling; the worker takes a flat list and a pen per entry.
+  const { tracks: trackList, pens: trackPens } = flattenForRequest(appState.trackFiles);
+
   return {
     regionCorners: corners,
     // How much of that region is below the sheet, and gets cut off at the edge.
@@ -265,14 +269,12 @@ function buildRequest(corners, overplot) {
       spacing: Number(appState.hatchSpacing),
       toneLevels: Number(appState.hatchLevels),
     },
-    tracks: appState.tracks.map((t) => ({ name: t.name, points: t.points })),
+    tracks: trackList,
     trackMode: appState.trackMode,
-    dotPitch: Number(appState.dotPitch),
-    dotLength: Number(appState.dotLength),
     page: pageSettings(),
     pens: {
       terrain: { color: appState.terrainPenColor, width: Number(appState.terrainPenWidth) },
-      tracks: appState.tracks.map((t) => ({ color: t.color, width: Number(t.width) })),
+      tracks: trackPens,
       algorithmPens: appState.algorithmPens,
     },
     optimize: {
@@ -384,22 +386,20 @@ function redrawPreview() {
   });
 }
 
-/** Parse dropped or chosen GPX files and add them as tracks. */
+/** Parse dropped or chosen GPX files and add them, one entry per file. */
 async function addGpxFiles(files) {
-  const palette = ['#c1272d', '#0b6e99', '#1a7f37', '#b8860b', '#6b3fa0', '#c2560f'];
   const errors = [];
 
   for (const file of files) {
     try {
       const parsed = parseGpx(await file.text(), file.name.replace(/\.gpx$/i, ''));
-      for (const track of parsed) {
-        appState.tracks.push({
-          name: track.name,
-          points: track.points,
-          color: palette[appState.tracks.length % palette.length],
-          width: 0.5,
-        });
+      if (parsed.length === 0) {
+        errors.push(`${file.name}: no track points`);
+        continue;
       }
+      appState.trackFiles.push(
+        makeTrackFile(file.name, parsed, appState.trackFiles.length)
+      );
     } catch (error) {
       // One bad file must not lose the others.
       errors.push(`${file.name}: ${error.message}`);
@@ -410,8 +410,9 @@ async function addGpxFiles(files) {
   if (appState.shouldDraw) updateMap();
 }
 
-function removeTrack(index) {
-  appState.tracks.splice(index, 1);
+function removeTrackFile(fileId) {
+  const at = appState.trackFiles.findIndex((f) => f.id === fileId);
+  if (at >= 0) appState.trackFiles.splice(at, 1);
   if (appState.shouldDraw) updateMap();
 }
 
