@@ -33,12 +33,73 @@ describe('computeGradient', () => {
     expect(b.at(5, 2).dx).toBeCloseTo(a.at(5, 2).dx / 2, 6);
   });
 
+  it('takes a different cell size along each axis', () => {
+    // The sheet is a projective region: under pitch a row step covers several
+    // times the ground a column step does, and a single cell size cannot say so.
+    const g = computeGradient(rampField(11, 5, 0, 100), { cellSize: { x: 2, y: 10 } });
+    expect(g.at(5, 2).dx).toBeCloseTo(5, 6);
+    expect(g.at(5, 2).dy).toBeCloseTo(0, 6);
+  });
+
+  it('reads a per-row cell size at the row it belongs to', () => {
+    // Ground per sample varies down a tilted sheet, so the run does too.
+    const perRow = { x: [1, 1, 2, 4, 8], y: 1 };
+    const g = computeGradient(rampField(11, 5, 0, 100), { cellSize: perRow });
+    expect(g.at(5, 0).dx).toBeCloseTo(10, 6);
+    expect(g.at(5, 2).dx).toBeCloseTo(5, 6);
+    expect(g.at(5, 4).dx).toBeCloseTo(1.25, 6);
+  });
+
+  it('treats a missing cell size as one field unit', () => {
+    const plain = computeGradient(rampField(11, 5, 0, 100));
+    for (const absent of [null, undefined]) {
+      const g = computeGradient(rampField(11, 5, 0, 100), { cellSize: absent });
+      expect(g.at(5, 2).dx).toBeCloseTo(plain.at(5, 2).dx, 9);
+    }
+  });
+
   it('has no gradient where the neighbourhood touches nodata', () => {
     const data = new Float32Array(25).fill(100);
     data[12] = NODATA;
     const g = computeGradient(createHeightField({ width: 5, height: 5, data }));
     expect(g.at(1, 2)).toBeNull();
     expect(g.at(0, 0)).not.toBeNull();
+  });
+});
+
+describe('computeHillshade at map scale', () => {
+  // A sample on a zoomed-out sheet is hundreds of metres of ground. Measuring the
+  // run in samples instead of metres inflates every gradient by that factor, and
+  // the shading saturates: the normal goes horizontal, the surface stops being a
+  // surface, and what is left is a clamped aspect mask with no slope in it.
+  const METRES_PER_SAMPLE = 800;
+
+  const spread = (shade) => {
+    let black = 0, n = 0, min = Infinity, max = -Infinity;
+    for (const s of shade.data) {
+      if (isNoData(s)) continue;
+      n++;
+      if (s <= 0.02) black++;
+      if (s < min) min = s;
+      if (s > max) max = s;
+    }
+    return { black: black / n, min, max };
+  };
+
+  it('collapses to black and white when the run is measured in samples', () => {
+    const hill = gaussianHill(60, 60, 2000);
+    const saturated = spread(computeHillshade(computeGradient(hill), { zFactor: 3 }));
+    expect(saturated.black).toBeGreaterThan(0.2);
+    expect(saturated.max).toBeLessThan(0.9);
+  });
+
+  it('keeps a usable range of tone when the run is real ground', () => {
+    const hill = gaussianHill(60, 60, 2000);
+    const real = spread(
+      computeHillshade(computeGradient(hill, { cellSize: METRES_PER_SAMPLE }), { zFactor: 3 })
+    );
+    expect(real.black).toBeLessThan(0.02);
+    expect(real.max).toBeGreaterThan(0.9);
   });
 });
 

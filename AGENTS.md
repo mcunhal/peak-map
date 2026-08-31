@@ -96,6 +96,35 @@ add a size setting, add it to that table, or raising the detail will silently
 change how the map looks. This is exactly the bug that made relief fall from 74mm
 to 14mm as detail went 300 to 1600.
 
+**A slope needs the ground, not the sample.** `composite.js` also measures how
+much ground a sample covers, via `regionCellSizes`, and passes it as
+`groundCellSize` for `computeGradient`'s `cellSize`. Only the two lit algorithms
+read it — Tanaka and the hillshade hatching, through `litGradient` in
+`algorithms/index.js`, so they cannot drift apart the way the exaggeration above
+once did.
+
+Left at the default of one sample, the gradient is metres per *sample*, and a
+sample is 200m of ground on a zoomed-in sheet and 1700m on a zoomed-out one. At
+map scale that saturates: the normal lies down flat, and the hillshade stops
+being a hillshade and becomes a clamped aspect mask. Measured on a z7 sheet of
+Iberia, 805m a sample: **49% of the land clamped to pure black**, mean 0.24,
+nothing above 0.94 — and the same figures at detail 200, 400, 800 and 1600,
+because all four were far past saturation. That last part is what makes it look
+like working code: the sheet is not obviously wrong, and it does not respond to
+any setting. In ground units the same sheet gives mean 0.69 and 0.1% black.
+
+The cell size is two arrays, one per axis, because a sample is not square. Even
+north-up it is not: that sheet is 805m across and 1106m down. Under pitch the
+far rows cover several times the ground the near ones do, and depth foreshortens
+harder than width — so one figure for both axes tilts the normal sideways and
+swings the light off its azimuth.
+
+Two things still read the gradient in sample units, and both are saturated in
+the same way: the hachures' `minSlope` cut, and `computeSlope`, which weights the
+hachure strokes. `atan(hypot(...))` is about 90 degrees almost everywhere, so
+neither setting does much. Fixing those changes how the hachures draw, which is
+why it was not bundled in with the light.
+
 **The sheet is drawn past its bottom edge, and cut off there.** The relief lifts
 a line up the page, so a peak on the near edge is raised clear of it and leaves
 blank paper beneath — 21mm of an A3 at Serra da Estrela, measured. `main.js`

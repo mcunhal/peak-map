@@ -24,6 +24,7 @@ import { renderTerrain, getAlgorithm } from './algorithms/index';
 import { buildLayers } from './layers';
 import { sheetRows, cutBelow } from './heightField';
 import { LINE_STYLES } from './dash';
+import { regionCellSizes, regionFromBbox } from '../dem/tileMath';
 
 /** Options the app supplies in millimetres, with the default each falls back to. */
 const MILLIMETRE_OPTIONS = {
@@ -102,6 +103,21 @@ export function buildTerrainLayers({
   // to cover the whole field at the pitch the sheet was promised.
   const overplotRatio = field.height / sheetRows(field);
 
+  // The other size that is not a size in samples: the ground a sample covers.
+  //
+  // A slope is a rise over a run, and anything that lights the surface needs both
+  // in the same units. The algorithms measure the run in samples, which is right
+  // for drawing but wrong for shading, because a sample is hundreds of metres on
+  // a zoomed-out sheet and tens on a zoomed-in one. Measured in samples the
+  // gradient saturates, the surface normal lies down flat, and the hillshade
+  // stops carrying any slope at all — so a mountain and a swell shade alike.
+  //
+  // Converting here, next to `samplesPerMm`, is the same move for the same reason:
+  // the boundary is where the physical world is turned into samples, and the
+  // algorithms should never have to know which sheet they are on.
+  const region = field.region || (field.bbox ? regionFromBbox(field.bbox) : null);
+  const groundCellSize = regionCellSizes(region, field.width, field.height);
+
   const trackDots = { dotPitch: mm(dotPitch, 0.9), dotLength: mm(dotLength, 0.3) };
 
   // Line styles are millimetres on paper, like every other size here, so they
@@ -124,7 +140,7 @@ export function buildTerrainLayers({
       if (algorithmOptions[key] !== undefined) sized[key] = mm(algorithmOptions[key], fallback);
     }
 
-    const options = { ...defaults, ...algorithmOptions, ...sized };
+    const options = { ...defaults, ...algorithmOptions, ...sized, groundCellSize };
     if (overplotRatio > 1 && Number.isFinite(options.rowCount)) {
       options.rowCount = Math.round(options.rowCount * overplotRatio);
     }

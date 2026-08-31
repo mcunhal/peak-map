@@ -11,19 +11,60 @@
 import { isNoData, NODATA } from './heightField';
 
 /**
- * Central-difference gradient, in metres of rise per sample of run.
+ * Reads one axis of a cell size that may be a number, or a value per field row.
  *
- * `cellSize` scales the run when the caller knows the ground distance a sample
- * covers; leaving it at 1 keeps everything in field units, which is all the
- * line-generating algorithms need.
+ * A tilted sheet has no single cell size: the far rows cover several times the
+ * ground the near ones do, so the run has to be asked for by row.
+ */
+function cellSizeReader(cellSize, axis, height) {
+  const value =
+    cellSize && typeof cellSize === 'object' && !Array.isArray(cellSize) && !ArrayBuffer.isView(cellSize)
+      ? cellSize[axis]
+      : cellSize;
+
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+    if (value.length !== height) {
+      throw new Error(`A per-row cell size needs one value per row, not ${value.length}`);
+    }
+    return (y) => (value[y] > 0 ? value[y] : 1);
+  }
+  return Number.isFinite(value) && value > 0 ? () => value : () => 1;
+}
+
+/**
+ * Central-difference gradient, in metres of rise per unit of run.
+ *
+ * `cellSize` is the ground a sample covers, and the unit of the result follows
+ * it: leaving it at 1 gives metres per *sample*, which is all the line-generating
+ * algorithms need, while passing ground metres gives a true dimensionless slope.
+ *
+ * Anything lighting the surface needs the latter. A sample is not a fixed size —
+ * it is hundreds of metres on a zoomed-out sheet and tens on a zoomed-in one —
+ * so metres-per-sample inflates every gradient by that factor and the shading
+ * saturates: the surface normal goes horizontal, and what should be a hillshade
+ * collapses into a clamped aspect mask with no slope left in it. Measured on a
+ * z7 sheet of Iberia at 811m a sample: 52% of the land clamped to pure black,
+ * nothing above 0.85, and the same numbers at every detail setting because they
+ * were all far past saturation. In real ground units the same sheet gives a mean
+ * of 0.67 and 1.6% black.
+ *
+ * It may be a single number, or `{x, y}` where each axis is a number or a value
+ * per field row. Both axes are needed because a projective sheet foreshortens
+ * depth harder than width, so a row step and a column step cover different
+ * ground and a single figure would skew the aspect — and with it the light.
  */
 export function computeGradient(field, { cellSize = 1 } = {}) {
   const { width, height } = field;
+  const runXAt = cellSizeReader(cellSize, 'x', height);
+  const runYAt = cellSizeReader(cellSize, 'y', height);
   const dzdx = new Float32Array(width * height);
   const dzdy = new Float32Array(width * height);
   const valid = new Uint8Array(width * height);
 
   for (let y = 0; y < height; ++y) {
+    const cellX = runXAt(y);
+    const cellY = runYAt(y);
+
     for (let x = 0; x < width; ++x) {
       const i = y * width + x;
 
@@ -38,8 +79,8 @@ export function computeGradient(field, { cellSize = 1 } = {}) {
         continue;
       }
 
-      const runX = (x === 0 || x === width - 1 ? 1 : 2) * cellSize;
-      const runY = (y === 0 || y === height - 1 ? 1 : 2) * cellSize;
+      const runX = (x === 0 || x === width - 1 ? 1 : 2) * cellX;
+      const runY = (y === 0 || y === height - 1 ? 1 : 2) * cellY;
 
       dzdx[i] = (right - left) / runX;
       dzdy[i] = (down - up) / runY;

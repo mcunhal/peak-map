@@ -31,6 +31,17 @@ import { hachures, hillshadeHatching } from './hachures';
  */
 const HILLSHADE_Z_FACTOR = 3;
 
+/**
+ * The two lit algorithms both need the gradient in ground units, not sample ones.
+ *
+ * `composite.js` measures the ground a sample covers and puts it in the options
+ * bag; a field with no geography behind it has none, and `computeGradient` then
+ * falls back to its own unit run. Both callers go through here so they cannot
+ * drift apart the way the exaggeration above once did.
+ */
+const litGradient = (field, options) =>
+  computeGradient(field, { cellSize: options.groundCellSize });
+
 export const ALGORITHMS = {
   ridgeline: {
     id: 'ridgeline',
@@ -87,6 +98,8 @@ export const ALGORITHMS = {
       classes: 3,
       useHillshade: true,
       zFactor: HILLSHADE_Z_FACTOR,
+      // Ground metres per sample; null means the run is one field unit.
+      groundCellSize: null,
     },
     run(field, options) {
       const { azimuth = 315, classes = 3, useHillshade = true } = options;
@@ -95,7 +108,7 @@ export const ALGORITHMS = {
       const groups = useHillshade
         ? shadeWeightedClasses(
             lines,
-            computeHillshade(computeGradient(field), {
+            computeHillshade(litGradient(field, options), {
               azimuth,
               zFactor: options.zFactor,
             }),
@@ -181,9 +194,11 @@ export const ALGORITHMS = {
       toneLevels: 4,
       azimuth: 315,
       zFactor: HILLSHADE_Z_FACTOR,
+      // Ground metres per sample; null means the run is one field unit.
+      groundCellSize: null,
     },
     run(field, options) {
-      const shade = computeHillshade(computeGradient(field), {
+      const shade = computeHillshade(litGradient(field, options), {
         azimuth: options.azimuth,
         zFactor: options.zFactor,
       });

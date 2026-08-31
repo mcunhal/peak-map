@@ -283,3 +283,57 @@ export function regionRowScales(region, fieldWidth, fieldHeight, { normaliseRow 
   for (let y = 0; y < fieldHeight; ++y) scales[y] /= middle;
   return scales;
 }
+
+/**
+ * The ground a sample covers, in metres, row by row and along each axis.
+ *
+ * Anything that lights the surface needs a true slope, and a slope is a rise
+ * over a run in the same units. The run is a sample, and a sample is not a fixed
+ * size: it is hundreds of metres on a zoomed-out sheet and tens on a zoomed-in
+ * one. Measuring it here is the same move `MILLIMETRE_OPTIONS` makes for sizes —
+ * convert at the boundary, so the algorithms keep working in samples.
+ *
+ * Both axes are returned because a tilted sheet is not square. Perspective
+ * foreshortens depth harder than width, so a row step covers more ground than a
+ * column step, by a ratio that changes down the page. Collapsing them to one
+ * figure tilts the surface normal sideways and swings the light off its azimuth.
+ *
+ * Distances are measured between sample centres, which is where a height field's
+ * values actually live, over a local equirectangular approximation — good to
+ * well under a percent at any sample size, and it does not care what projection
+ * the region was built in.
+ *
+ * @returns {{x: Float64Array, y: Float64Array}} metres per sample step
+ */
+export function regionCellSizes(region, fieldWidth, fieldHeight) {
+  if (!region || !(fieldWidth > 1) || !(fieldHeight > 1)) return null;
+
+  const METRES_PER_DEGREE_LAT = 110574;
+  const METRES_PER_DEGREE_LNG = 111320;
+
+  const midX = Math.floor(fieldWidth / 2);
+  const x = new Float64Array(fieldHeight);
+  const y = new Float64Array(fieldHeight);
+
+  const at = (sx, sy) => region.sampleToLngLat(fieldWidth, fieldHeight, sx, sy);
+  const metres = (a, b) => {
+    const midLat = ((a.lat + b.lat) / 2) * (Math.PI / 180);
+    return Math.hypot(
+      (b.lng - a.lng) * METRES_PER_DEGREE_LNG * Math.cos(midLat),
+      (b.lat - a.lat) * METRES_PER_DEGREE_LAT
+    );
+  };
+
+  for (let row = 0; row < fieldHeight; ++row) {
+    x[row] = metres(at(midX, row), at(midX + 1 < fieldWidth ? midX + 1 : midX - 1, row));
+
+    // The vertical run is the true distance across the rows the central
+    // difference actually reads, divided by the steps between them, so that
+    // doubling it back up in `computeGradient` recovers that distance exactly.
+    const above = Math.max(0, row - 1);
+    const below = Math.min(fieldHeight - 1, row + 1);
+    y[row] = metres(at(midX, above), at(midX, below)) / (below - above);
+  }
+
+  return { x, y };
+}

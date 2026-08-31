@@ -370,6 +370,85 @@ function leftmostInk(layers) {
   return { min, points };
 }
 
+describe('the ground a sample covers', () => {
+  // Two sheets of identical samples over wildly different ground. The terrain is
+  // the same numbers; what differs is how far apart they sit on the Earth, and
+  // so how steep the ground actually is.
+  const sheet = (span) => {
+    const width = 120, height = 120;
+    const plain = gaussianHill(width, height, 1200);
+    const data = new Float32Array(width * height);
+    for (let y = 0; y < height; ++y) {
+      for (let x = 0; x < width; ++x) data[y * width + x] = plain.get(x, y);
+    }
+    return createHeightField({
+      width, height, data,
+      bbox: { west: -8, south: 41, east: -8 + span, north: 41 + span },
+    });
+  };
+
+  /**
+   * Ink on the lit side of the hill against ink on the shaded side.
+   *
+   * Total ink is the wrong measure: flat ground shades to a mid grey, which is
+   * plenty of ink. What steepness buys is *contrast* — the difference between
+   * the face turned into the light and the face turned away from it.
+   */
+  const contrastOf = (field) => {
+    const page = createPage({ paper: 'A4', orientation: 'portrait', margin: 10 });
+    const mapper = createPageMapper(page, field);
+    const layers = buildTerrainLayers({
+      field,
+      mapper,
+      algorithmIds: ['hillshade-hatching'],
+      algorithmOptions: { azimuth: 315, angle: 45, spacing: 0.9, toneLevels: 4 },
+    });
+
+    // The sun is in the north-west, so that corner of the sheet is the lit face
+    // of the hill and the south-east corner is the shaded one.
+    const mid = mapper.polylineToMm([field.width / 2, field.height / 2]);
+    let lit = 0, shaded = 0;
+    for (const layer of layers) {
+      for (const line of layer.polylines) {
+        for (let i = 3; i < line.length; i += 2) {
+          const length = Math.hypot(line[i - 1] - line[i - 3], line[i] - line[i - 2]);
+          const x = line[i - 1], y = line[i];
+          if (x < mid[0] && y < mid[1]) lit += length;
+          else if (x > mid[0] && y > mid[1]) shaded += length;
+        }
+      }
+    }
+    expect(lit).toBeGreaterThan(0);
+    return shaded / lit;
+  };
+
+  it('shades a steep sheet with more contrast than a gentle one', () => {
+    // 0.2 degrees is about 20km, so a sample is 180m and the hill is a mountain.
+    // 2 degrees is ten times that, and the same numbers are a gentle swell.
+    const steep = contrastOf(sheet(0.2));
+    const gentle = contrastOf(sheet(2.0));
+
+    // Without a real cell size the gradient is metres per *sample*, which knows
+    // nothing about the ground: both sheets came out byte for byte identical,
+    // because the hillshade had saturated into a clamped aspect mask at each.
+    expect(steep).toBeGreaterThan(gentle * 1.5);
+    // And the gentle sheet is nearly evenly toned, as gentle ground should be.
+    expect(gentle).toBeLessThan(1.3);
+  });
+
+  it('still draws a field that carries no geography at all', () => {
+    const bare = gaussianHill(60, 60, 900);
+    const page = createPage({ paper: 'A5', orientation: 'portrait', margin: 5 });
+    const layers = buildTerrainLayers({
+      field: bare,
+      mapper: createPageMapper(page, bare),
+      algorithmIds: ['hillshade-hatching'],
+    });
+    expect(layers.length).toBeGreaterThan(0);
+    expect(layers[0].polylines.length).toBeGreaterThan(0);
+  });
+});
+
 describe('the ocean level', () => {
   const field = coastalField();
   const { mapper } = setup(field);

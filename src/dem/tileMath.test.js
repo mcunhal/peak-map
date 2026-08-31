@@ -269,6 +269,41 @@ describe('createRegion with perspective', () => {
     expect(rowWidth(0.05) / rowWidth(0.95)).toBeGreaterThan(2);
   });
 
+  it('measures the ground a sample covers, per row and per axis', async () => {
+    const { createRegion, regionCellSizes } = await import('./tileMath');
+
+    const cells = regionCellSizes(createRegion(tilted), 200, 140);
+    expect(cells.x.length).toBe(140);
+    expect(cells.y.length).toBe(140);
+
+    // Row 0 is the far edge of a tilted sheet, row 139 the near one.
+    expect(cells.x[0] / cells.x[139]).toBeGreaterThan(2);
+    // Depth foreshortens harder than width does, which is why the two axes are
+    // measured separately: one figure for both would skew the aspect.
+    expect(cells.y[0] / cells.y[139]).toBeGreaterThan(cells.x[0] / cells.x[139]);
+
+    // Real ground, in metres: this sheet is about 1.8 degrees of latitude tall.
+    expect(cells.y[70]).toBeGreaterThan(100);
+    expect(cells.y[70]).toBeLessThan(10000);
+  });
+
+  it('measures a north-up sheet evenly down the page, but not squarely', async () => {
+    const { regionFromBbox, regionCellSizes } = await import('./tileMath');
+
+    const region = regionFromBbox({ west: -8, south: 40, east: -7, north: 41 });
+    const cells = regionCellSizes(region, 100, 100);
+
+    // Mercator rows are evenly spaced on the ground within a degree of latitude.
+    expect(cells.x[5] / cells.x[95]).toBeCloseTo(1, 1);
+
+    // A sample is not square even here: one degree of longitude at 40.5 north is
+    // 84.6km against 110.6km for the degree of latitude, and a 100 by 100 field
+    // over that box inherits the difference. Both axes are wanted whether or not
+    // the sheet is tilted.
+    expect(cells.x[50]).toBeCloseTo(846, -2);
+    expect(cells.y[50]).toBeCloseTo(1106, -2);
+  });
+
   it('spaces rows unevenly on the ground, as a camera does', async () => {
     const { createRegion, latToTileY } = await import('./tileMath');
     const region = createRegion(tilted);
