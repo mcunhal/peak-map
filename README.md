@@ -60,14 +60,16 @@ On a phone, two fingers turn the map and two fingers dragged up or down tilt it.
 
 | Algorithm | What it draws |
 |---|---|
-| **Ridge lines** | Horizontal scanlines lifted by elevation, with hidden-line removal. The Joy Division look. |
-| **Contour lines** | Isolines at fixed elevation intervals. The classic topographic map. |
-| **Contours, one pen per level** | The same, split by elevation, so index contours can be heavier. |
-| **Illuminated contours (Tanaka)** | Contours weighted by the light, so flat isolines read as relief. |
-| **Streamlines** | Evenly spaced strokes running downhill. Reads as drainage and spurs. |
-| **Streamlines along the hillside** | The same spacing, following the contour direction instead. |
-| **Hachures** | Short downslope strokes, longer and denser where steeper, blank where level. |
-| **Hillshade hatching** | Parallel rules whose density follows a computed hillshade. Renders tone. |
+| [Ridge lines](docs/algorithms/ridgeline.md) | Horizontal scanlines lifted by elevation, with hidden-line removal. The Joy Division look. |
+| [Contour lines](docs/algorithms/contours.md) | Isolines at fixed elevation intervals. The classic topographic map. |
+| [Contours, one pen per level](docs/algorithms/contours-by-level.md) | The same, split by elevation, so index contours can be heavier. |
+| [Illuminated contours (Tanaka)](docs/algorithms/tanaka.md) | Contours weighted by the light, so flat isolines read as relief. |
+| [Streamlines](docs/algorithms/streamlines.md) | Evenly spaced strokes running downhill. Reads as drainage and spurs. |
+| [Streamlines along the hillside](docs/algorithms/streamlines-contour.md) | The same spacing, following the contour direction instead. |
+| [Hachures](docs/algorithms/hachures.md) | Short downslope strokes, longer and denser where steeper, blank where level. |
+| [Hillshade hatching](docs/algorithms/hillshade-hatching.md) | Parallel rules whose density follows a computed hillshade. Renders tone. |
+
+Every parameter of every algorithm, illustrated: **[docs/algorithms](docs/algorithms/README.md)**.
 
 Ridge lines are the fastest and the most forgiving. Contours are the most
 plotter-native: closed loops, no overdraw. Hachures and hillshade hatching are the
